@@ -5,7 +5,7 @@
 cargo run --bin coordinator                     # hosts TCP Connection
 cargo run --bin compute --no-default-features   # Generate first commitment
 cargo run --bin network --no-default-features   # Connect to coordinator
-'''
+```
 
 1. Compute -> enter random seed -> hash (qTTQwHCF6SZDWPxMNapTZds91aH4xqPwNkCXkL8XyTNowYuGY)
 2. Network -> enter hash from step 1
@@ -21,6 +21,6 @@ In the end you have the complete transcript file in the base directory.
 You can verify the transcript and generate the public parameters using the following command: 
 ```
 cargo run --bin verifier
-'''
+```
 
 This will generate two files: "pk" (proving key) and "vk" (verification key)
