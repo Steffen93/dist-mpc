@@ -11,6 +11,10 @@ cargo run --bin network --no-default-features   //Connect to coordinator
 6. Compute -> write disc B -> hash (TvHWtLZXMXUzC9QpAStbbgHGE56LHHzKEnJW4rNHv7nMFJEeo)
 7. Network -> read disc B -> and so on
 ...
-In the end you have the transcript file in the base directory.
 
-You can verify it using 'cargo run --bin verifier'.
+In the end you have the complete transcript file in the base directory.
+
+You can verify the transcript and generate the public parameters using the following command: 
+cargo run --bin verifier
+
+This will generate two files: "pk" (proving key) and "vk" (verification key)
