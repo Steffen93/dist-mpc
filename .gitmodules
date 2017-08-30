@@ -1,3 +1,3 @@
 [submodule "snark/libsnark"]
-	path = snark/libsnark
+	path = mpc/snark/libsnark
 	url = https://github.com/zcash/libsnark.git
