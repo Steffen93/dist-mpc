@@ -19,8 +19,8 @@ contract DistMpc {
     /**
      * State variables
      */
-    address coordinator;
-    address[] participants; // array of all participants
+    address public coordinator;
+    address[] public participants; // array of all participants
     mapping(address => PlayerCommitment) playerCommitments; // map a player to its commitments
     State currentState;
     
@@ -55,7 +55,7 @@ contract DistMpc {
     modifier allCommitmentsReady(){
         if(currentState != State.New){
           uint stateInt = uint(currentState) - 1;
-          for(uint partCount = participants.length - 1; partCount >= 0; partCount--){
+          for(uint partCount = 0; partCount < participants.length - 1; partCount++){
               require(hasCommitmentFor(stateInt));
           }
         }
