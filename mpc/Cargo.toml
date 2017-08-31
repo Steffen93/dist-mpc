@@ -15,6 +15,11 @@ path = "src/coordinator.rs"
 test = true
 
 [[bin]]
+name = "eth_coordinator"
+path = "src/eth_coordinator.rs"
+test = false
+
+[[bin]]
 name = "verifier"
 path = "src/verifier.rs"
 test = false
@@ -43,6 +48,8 @@ rand = "0.3.14"
 rustc-serialize = "~0.3.19"
 blake2-rfc = "0.2.17"
 byteorder = "0.5"
+hyper = "0.11.2"
+tokio-core = "0.1.9"
 
 # Coordinator needs these
 log = "*"
@@ -54,3 +61,4 @@ ansi_term = "*"
 version = "0.6.0"
 default-features = false
 features = ["rustc-serialize"]
+
