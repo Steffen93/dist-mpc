@@ -10,6 +10,7 @@ extern crate bincode;
 extern crate byteorder;
 extern crate hyper;
 extern crate tokio_core;
+extern crate futures;
  
 #[macro_use]
 extern crate log;
@@ -38,9 +39,12 @@ use bincode::SizeLimit::Infinite;
 use bincode::rustc_serialize::{encode_into, decode_from};
 use std::time::Duration;
 
-use hyper::{Method, Client, Request, Uri};
+use hyper::{Client};
+use hyper::header::{ContentType};
+use hyper::mime::{Mime, TopLevel, SubLevel, Attr, Value};
+use futures::future::*;
 
-const RPC_ENDPOINT: &'static str = "127.0.0.1:8545";
+const RPC_ENDPOINT: &'static str = "http://127.0.0.1:8545";
 pub const THREADS: usize = 128;
 
 fn main() {
@@ -76,13 +80,10 @@ fn main() {
     }
 
     info!("Checking Blockchain Connection at {}", RPC_ENDPOINT);
-    let mut core = tokio_core::reactor::Core::new().unwrap();
-    let handle = core.handle();
-    let client = Client::new(&handle);
-    let request = Request::new(Method::Post, Uri::from_str(RPC_ENDPOINT).unwrap());
-    let res = client.request(request).body().send();
-    match res {
-        Ok(res) => info!("Response: {}", res.status),
-        Err(e) => info!("Error: {}", e)
-    }
+    let client = Client::new();
+    let mut res = client.post(RPC_ENDPOINT).body("{\"jsonrpc\":\"2.0\",  \"method\":\"net_version\", \"params\":[], \"id\":67}").header(ContentType(Mime(TopLevel::Application, SubLevel::Json, vec![(Attr::Charset, Value::Utf8)]))).send().unwrap();
+    let mut result: &mut String = &mut String::new();
+    res.read_to_string(result).unwrap();
+    info!("Response status: {}", res.status);
+    info!("Response: {}", result);
 }
