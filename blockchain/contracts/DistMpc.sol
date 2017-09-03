@@ -4,6 +4,7 @@ contract DistMpc {
     /**
      * Structs
      */
+
     // Commitments made by a player during the setup phase
     struct PlayerCommitment {
         bool initialized;
@@ -14,12 +15,18 @@ contract DistMpc {
     /**
      * Enums
      */
-    enum State { New, StageA, StageB, StageC, StageD, StageE, StageF }
+    enum State { New, Stage1, Stage2, Stage3 }
     
+    /**
+     * Events
+     */
+    event PlayerJoined(address player, string publicKey);
+    event StateChanged(uint newState);
+    event Committed(address player, string commitment);
+
     /**
      * State variables
      */
-    address public coordinator;
     address[] public participants; // array of all participants
     mapping(address => PlayerCommitment) playerCommitments; // map a player to its commitments
     State currentState;
@@ -45,50 +52,73 @@ contract DistMpc {
     }
     modifier hasNoCommitmentForCurrentState(){
         uint stateInt = uint(currentState);
-        require(!hasCommitmentFor(stateInt-1));
+        require(!hasCommitmentFor(msg.sender, stateInt-1));
         _;
     }
-    modifier isCoordinator(){
-        require(msg.sender == coordinator);
-        _;
-    }
-    modifier allCommitmentsReady(){
-        if(currentState != State.New){
-          uint stateInt = uint(currentState) - 1;
-          for(uint partCount = 0; partCount < participants.length - 1; partCount++){
-              require(hasCommitmentFor(stateInt));
-          }
-        }
+    modifier stringNotEmpty(string str){
+        require(bytes(str).length > 0);
         _;
     }
      
     /**
      * Internal Functions
      */
-    function hasCommitmentFor(uint state) internal returns (bool) {
-        return bytes(playerCommitments[msg.sender].commitments[state]).length > 0;
+    function hasCommitmentFor(address player, uint state) internal constant returns(bool) {
+        return bytes(playerCommitments[player].commitments[state]).length > 0;
+    }
+
+    function goToNextStage() internal {
+        currentState = State(uint(currentState) + 1);
+        StateChanged(uint(currentState));
+    }
+
+    function allCommitmentsReady() internal constant returns(bool){
+        if(currentState != State.New){
+          uint stateInt = uint(currentState) - 1;
+          for(uint index = 0; index < participants.length; index++){
+              if(!hasCommitmentFor(participants[index], stateInt)){
+                return false;
+              }
+          }
+        }
+        return true;
+    }
+
+    function isCoordinator() internal constant returns(bool){
+        return msg.sender == participants[0];
     }
      
     /**
      * Public Functions
      */
     function DistMpc(){
-        coordinator = msg.sender;
         currentState = State.New;
-    }
+        join("coordinator");
+    } 
     
-    function join(string publicKey) isNewPlayer isInState(State.New) {
+    function join(string publicKey) isNewPlayer isInState(State.New) stringNotEmpty(publicKey){
         participants.push(msg.sender);
-        playerCommitments[msg.sender] = PlayerCommitment(true, publicKey, new string[](6));
+        playerCommitments[msg.sender] = PlayerCommitment(true, publicKey, new string[](3));
+        PlayerJoined(msg.sender, publicKey);
     }
     
-    function commit(string commitment) isExistingPlayer isNotInState(State.New) hasNoCommitmentForCurrentState {
+    function commit(string commitment) isExistingPlayer isNotInState(State.New) stringNotEmpty(commitment) hasNoCommitmentForCurrentState {
         uint currentStateInt = uint(currentState);
+        if(!isCoordinator()){
+            require(hasCommitmentFor(participants[0], currentStateInt - 1)); //require that coordinator has committed already
+        } else {
+            require(!hasCommitmentFor(msg.sender, currentStateInt - 1));
+        }
         playerCommitments[msg.sender].commitments[currentStateInt - 1] = commitment;
+        Committed(msg.sender, commitment);
+        if(allCommitmentsReady()){
+            goToNextStage();
+        }
     }
     
-    function goToNextStage() isCoordinator allCommitmentsReady isNotInState(State.StageF) {
-        require(participants.length > 0);
-        currentState = State(uint(currentState) + 1);
+    function start() isInState(State.New) {
+        require(isCoordinator() && participants.length > 1);
+        goToNextStage();
     }
+
 }

@@ -3,11 +3,21 @@ var DistMpc = artifacts.require("./DistMpc.sol");
 contract('DistMpc', function(accounts) {
   it("should set the first account as coordinator", function() {
     return DistMpc.deployed().then(function(instance) {
-      return instance.coordinator();
+      return instance.participants(0);
     }).then(function(coordinator) {
       assert.equal(coordinator, accounts[0], "The default account is not the coordinator.");
     }).catch(function(error){
       assert.fail("Something went wrong.")
+    });
+  });
+
+  it("should fail to start without participants", function(){
+    return DistMpc.deployed().then(function(instance) {
+      return instance.start({from: accounts[0]});
+    }).then(function(){
+      assert.fail("It should fail to start");
+    }).catch(function(){
+      assert.ok(true);
     });
   });
 
@@ -41,9 +51,9 @@ contract('DistMpc', function(accounts) {
     });
   });
 
-  it("should fail to go to next stage if not coordinator", function(){
+  it("should fail to go start if not coordinator", function(){
     return DistMpc.deployed().then(function(instance) {
-      return instance.goToNextStage({from: accounts[1]});
+      return instance.start({from: accounts[1]});
     }).then(function(){
       assert.fail("This should not work.");
     }).catch(function(){
@@ -51,9 +61,9 @@ contract('DistMpc', function(accounts) {
     });
   });
 
-  it("should succeed to go to next stage if sender is coordinator", function(){
+  it("should go to next stage if sender is coordinator", function(){
     return DistMpc.deployed().then(function(instance) {
-      return instance.goToNextStage({from: accounts[0]});
+      return instance.start({from: accounts[0]});
     }).then(function(){
       assert.ok(true);
     }).catch(function(){
@@ -61,21 +71,9 @@ contract('DistMpc', function(accounts) {
     });
   });
 
-  it("should fail to go to next stage if not all players committed yet", function(){
-    return DistMpc.deployed().then(function(instance) {
-      return instance.goToNextStage({from: accounts[0]});
-    }).then(function(){
-      assert.fail("Should fail. Not all players committed yet.");
-    }).catch(function(){
-      assert.ok(true);
-    });
-  });
-
   it("should fail to commit if sender is not a participant", function(){
-    var dmpc;
     return DistMpc.deployed().then(function(instance) {
-      dmpc = instance;
-      return dmpc.commit("commitment 1", {from: accounts[2]});
+      return instance.commit("commitment 1", {from: accounts[2]});
     }).then(function(){
       assert.fail("Sender is not a participant.");
     }).catch(function(){
@@ -83,11 +81,19 @@ contract('DistMpc', function(accounts) {
     });
   });
 
-  it("should commit successfully to the first stage", function(){
-    var dmpc;
+  it("should fail to commit if sender is a participant but coordinator has not committed yet", function(){
     return DistMpc.deployed().then(function(instance) {
-      dmpc = instance;
-      return dmpc.commit("commitment 1", {from: accounts[1]});
+      return instance.commit("commitment 1", {from: accounts[1]});
+    }).then(function(){
+      assert.fail("Coordinator has not yet committed.");
+    }).catch(function(){
+      assert.ok(true);
+    });
+  });
+
+  it("should commit successfully to the first stage if sender is coordinator", function(){
+    return DistMpc.deployed().then(function(instance) {
+      return instance.commit("commitment 1", {from: accounts[0]});
     }).then(function(){
       assert.ok(true);
     }).catch(function(){
@@ -95,6 +101,16 @@ contract('DistMpc', function(accounts) {
     });
   });
 
+  it("should commit successfully to the first stage", function(){
+    return DistMpc.deployed().then(function(instance) {
+      return instance.commit("commitment 1", {from: accounts[1]});
+    }).then(function(){
+      assert.ok(true);
+    }).catch(function(){
+      assert.fail("Commitment should have been successful.");
+    });
+  });
+/* FIXME: Adapt to correct structure
   it("should work from first to last stage", function(){
     var dmpc;
     return DistMpc.new().then(function(instance){
@@ -130,5 +146,5 @@ contract('DistMpc', function(accounts) {
       assert.fail("Should not fail during the process.");
     });
   });
-  
+*/
 });
