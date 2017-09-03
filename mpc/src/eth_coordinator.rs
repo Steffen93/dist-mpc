@@ -18,31 +18,10 @@ extern crate env_logger;
 extern crate time;
 extern crate ansi_term;
 
-#[macro_use]
-mod protocol;
-use self::protocol::*;
-
-mod consts;
-use self::consts::*;
-
-use snark::*;
-use std::net::{TcpListener, TcpStream};
-use std::io::{Read, Write};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::thread;
-use std::str::FromStr;
-use rustc_serialize::{Decodable, Encodable};
-use rustc_serialize::hex::ToHex;
-use bincode::SizeLimit::Infinite;
-use bincode::rustc_serialize::{encode_into, decode_from};
-use std::time::Duration;
-
+use std::io::Read;
 use hyper::{Client};
 use hyper::header::{ContentType};
 use hyper::mime::{Mime, TopLevel, SubLevel, Attr, Value};
-use futures::future::*;
 
 const RPC_ENDPOINT: &'static str = "http://127.0.0.1:8545";
 pub const THREADS: usize = 128;
