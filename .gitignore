@@ -12,5 +12,6 @@ Cargo.lock
 **/transcript
 **/vk
 **/pk
+**/r1cs
 
 **/build/
