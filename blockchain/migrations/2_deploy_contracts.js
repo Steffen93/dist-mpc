@@ -1,5 +1,5 @@
-var DistMpc = artifacts.require("./DistMpc.sol");
+var DistributedMPC = artifacts.require("./DistributedMPC.sol");
 
 module.exports = function(deployer) {
-  deployer.deploy(DistMpc);
+  deployer.deploy(DistributedMPC);
 };
