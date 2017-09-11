@@ -47,13 +47,15 @@ contract DistributedMPC is MultiPartyProtocol {
         }
     }
 
-    function setInitialStage(string stage) isCoordinator {
+    function setInitialStage(string stage) 
+        isCoordinator
+    {
         require(
             currentState == State.Stage1 
             || currentState == State.Stage2 
             || currentState == State.Stage3
         );
-        int stateInt = uint(currentState) - uint(State.Stage1); // 0 for stage 1, ... 2 for stage 3
+        uint stateInt = uint(currentState) - uint(State.Stage1); // 0 for stage 1, ... 2 for stage 3
         require(isStringEmpty(protocol.initialStages[stateInt]));
         protocol.initialStages[stateInt] = stage;
         StagePrepared(uint(currentState));
@@ -67,7 +69,8 @@ contract DistributedMPC is MultiPartyProtocol {
         isPlayer
         isNotEmpty(stageOneTransformed)
         isNotEmpty(iHash)
-        //TODO: targets have to be empty
+        isEmpty(protocol.stageTransformations[0].playerCommitments[msg.sender].payload)
+        previousPlayerCommitted
     {
         //TODO: check that previous player has committed
         /* FIXME: adapt to changes

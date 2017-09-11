@@ -43,8 +43,20 @@ contract MultiPartyProtocol {
     event NextStage(uint);  //called when a new stage begins
     event StagePrepared(uint);  //called when the coordinator initialized a new stage (stage1, stage2, stage3)
     
+    modifier isCoordinator(){
+        require(msg.sender == players[0]);
+        _;
+    }
+
     modifier isEmpty(string s){
         require(isStringEmpty(s));
+        _;
+    }
+
+    modifier isNewPlayer (){
+        for(uint i = 0; i < players.length; i++){
+            require(players[i] != msg.sender);
+        }
         _;
     }
 
@@ -53,13 +65,11 @@ contract MultiPartyProtocol {
         _;
     }
     
-    modifier isNewPlayer (){
-        for(uint i = 0; i < players.length; i++){
-            require(players[i] != msg.sender);
-        }
+    modifier isInState(State s){
+        require(currentState == s);
         _;
     }
-
+    
     modifier isPlayer (){
         bool found = false;
         for(uint i = 0; i < players.length; i++){
@@ -71,14 +81,26 @@ contract MultiPartyProtocol {
         require(found);
         _;
     }
-    
-    modifier isInState(State s){
-        require(currentState == s);
-        _;
-    }
-    
-    modifier isCoordinator(){
-        require(msg.sender == players[0]);
+
+    modifier previousPlayerCommitted() {
+        uint pIndex = getPlayerIndex();
+        require(
+            currentState == State.Stage1
+            || currentState == State.Stage2
+            || currentState == State.Stage3
+        );
+        uint stageIndex = uint(currentState) - uint(State.Stage1);
+        if(pIndex == 0){
+            require(!isStringEmpty(protocol.initialStages[stageIndex]));
+        } else {
+            require(
+                !isStringEmpty(
+                    protocol.stageTransformations[stageIndex]
+                    .playerCommitments[players[pIndex-1]]
+                    .payload
+                )
+            );
+        }
         _;
     }
     
@@ -88,13 +110,13 @@ contract MultiPartyProtocol {
     Protocol protocol;
     
     function MultiPartyProtocol(string r1cs) {
-        protocol = Protocol(
-            r1cs,
-            new string[](3), 
-            StageCommit(""), 
-            new StageTransform[](3), 
-            Keypair("", "")
-        );
+        protocol.r1cs = r1cs;
+        protocol.initialStages = new string[](3);
+        protocol.stageCommit = StageCommit("");
+        protocol.stageTransformations[0] = StageTransform();
+        protocol.stageTransformations[1] = StageTransform();
+        protocol.stageTransformations[2] = StageTransform();
+        protocol.keypair = Keypair("", "");
     }
     
     function nextStage() internal returns (bool){
@@ -105,6 +127,36 @@ contract MultiPartyProtocol {
         } else {
             return false;
         }
+    }
+
+    
+    function allCommitmentsReady() constant internal returns (bool) {
+        for(uint i = 0; i < players.length; i++){
+            if(isStringEmpty(protocol.stageCommit.playerCommitments[players[i]].commitment)){
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function allPlayerDataReady() constant internal returns (bool) {
+        for(uint i = 0; i < players.length; i++){
+            string memory nizks = protocol.stageCommit.playerCommitments[players[i]].nizks;
+            string memory pubKey = protocol.stageCommit.playerCommitments[players[i]].publicKey;
+            if(isStringEmpty(nizks) || isStringEmpty(pubKey)){
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function getPlayerIndex() constant internal returns (uint) {
+        for(uint i = 0; i < players.length; i++){
+            if(players[i] == msg.sender){
+                return i;
+            }
+        }
+        require(false);
     }
 
     function hashAllCommitments() constant internal returns (bytes32) {
@@ -134,23 +186,14 @@ contract MultiPartyProtocol {
             .concat(iHash.toSlice())
         );
     }
-    
-    function allCommitmentsReady() constant internal returns (bool) {
-        for(uint i = 0; i < players.length; i++){
-            if(isStringEmpty(protocol.stage0.playerCommitments[players[i]])){
-                return false;
-            }
-        }
-        return true;
+
+    function isStringEmpty(string s) constant internal returns (bool) {
+        return bytes(s).length == 0;
     }
 
     function stringToBytes32(string memory source) constant internal returns (bytes32 result) {
         assembly {
             result := mload(add(source, 32))
         }
-    }
-
-    function isStringEmpty(string s) constant internal returns (bool) {
-        return bytes(s).length == 0;
     }
 }
