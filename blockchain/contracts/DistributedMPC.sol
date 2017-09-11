@@ -20,40 +20,57 @@ contract DistributedMPC is MultiPartyProtocol {
         isInState(State.Commit) 
         isPlayer 
         isNotEmpty(commitment)
-        isEmpty(protocol.stage0.playerCommitments[msg.sender])
+        isEmpty(protocol.stageCommit.playerCommitments[msg.sender].commitment)
     {
-        protocol.stage0.playerCommitments[msg.sender] = commitment;
+        protocol.stageCommit.playerCommitments[msg.sender].commitment = commitment;
         PlayerCommitted(msg.sender, commitment);
         if(allCommitmentsReady()){
             bytes32 hashOfAllCommitments = hashAllCommitments();
-            protocol.stage0.lastMessageHash = hashOfAllCommitments;
+            protocol.stageCommit.lastMessageHash = hashOfAllCommitments;
+            nextStage();
+        }
+    }
+
+    function publishPlayerData(string nizks, string publicKey)
+        isInState(State.Nizks)
+        isPlayer
+        isNotEmpty(nizks)
+        isNotEmpty(publicKey)
+        isEmpty(protocol.stageCommit.playerCommitments[msg.sender].nizks)
+        isEmpty(protocol.stageCommit.playerCommitments[msg.sender].publicKey)
+    {
+        require(sha3(publicKey) == stringToBytes32(protocol.stageCommit.playerCommitments[msg.sender].commitment));
+        protocol.stageCommit.playerCommitments[msg.sender].nizks = nizks;
+        protocol.stageCommit.playerCommitments[msg.sender].publicKey = publicKey;
+        if(allPlayerDataReady()){
             nextStage();
         }
     }
 
     function setInitialStage(string stage) isCoordinator {
-        uint stateInt = uint(currentState) - 2;
-        require(stateInt >= 0 && stateInt <= 2); //only possible in state Stage1, Stage2 or Stage3
+        require(
+            currentState == State.Stage1 
+            || currentState == State.Stage2 
+            || currentState == State.Stage3
+        );
+        int stateInt = uint(currentState) - uint(State.Stage1); // 0 for stage 1, ... 2 for stage 3
         require(isStringEmpty(protocol.initialStages[stateInt]));
         protocol.initialStages[stateInt] = stage;
         StagePrepared(uint(currentState));
     }
 
     function publishStageOneResults(
-        string nizks, 
-        string publicKey, 
         string stageOneTransformed,
         string iHash
     )
         isInState(State.Stage1)
         isPlayer
-        isNotEmpty(nizks)
-        isNotEmpty(publicKey)
         isNotEmpty(stageOneTransformed)
         isNotEmpty(iHash)
+        //TODO: targets have to be empty
     {
         //TODO: check that previous player has committed
-        require(sha3(publicKey) == stringToBytes32(protocol.stage0.playerCommitments[msg.sender]));
+        /* FIXME: adapt to changes
         bytes32 lastMessageHash = hashStageOneResults(
             publicKey, 
             nizks, 
@@ -61,5 +78,6 @@ contract DistributedMPC is MultiPartyProtocol {
             iHash
         );
         protocol.stage1.playerCommitments[msg.sender] = PlayerStage1(nizks, publicKey, Commitment(stageOneTransformed, lastMessageHash));
+        */
     }
 }

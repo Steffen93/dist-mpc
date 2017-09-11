@@ -5,23 +5,20 @@ import "./strings.sol";
 contract MultiPartyProtocol {
     using strings for *;
     struct Commitment {
-        string binaryContent;
+        string payload;
         bytes32 lastMessageHash;
     }
 
-    struct PlayerStage1 {
+    struct PlayerCommitment {
+        string commitment;
         string nizks;
         string publicKey;
-        Commitment commitment;
+        string iHash;
     }
 
     struct StageCommit {
-        mapping (address => string) playerCommitments;
+        mapping (address => PlayerCommitment) playerCommitments;
         bytes32 lastMessageHash;    // == hash of all commitments
-    }
-
-    struct StageNizks {
-        mapping (address => PlayerStage1) playerCommitments;
     }
 
     struct StageTransform {
@@ -36,10 +33,8 @@ contract MultiPartyProtocol {
     struct Protocol {
         string r1cs;
         string[] initialStages;         //before round robin, the initial stage is stored here, starting with stage 1
-        StageCommit stage0;
-        StageNizks stage1;
-        StageTransform stage2;
-        StageTransform stage3;
+        StageCommit stageCommit;
+        StageTransform[] stageTransformations;
         Keypair keypair;
     }
     
@@ -87,7 +82,7 @@ contract MultiPartyProtocol {
         _;
     }
     
-    enum State {Join, Commit, Stage1, Stage2, Stage3, Finished}
+    enum State {Join, Commit, Nizks, Stage1, Stage2, Stage3, Finished}
     State public currentState = State.Join;
     address[] public players;
     Protocol protocol;
@@ -97,9 +92,7 @@ contract MultiPartyProtocol {
             r1cs,
             new string[](3), 
             StageCommit(""), 
-            StageNizks(), 
-            StageTransform(), 
-            StageTransform(), 
+            new StageTransform[](3), 
             Keypair("", "")
         );
     }
@@ -117,7 +110,9 @@ contract MultiPartyProtocol {
     function hashAllCommitments() constant internal returns (bytes32) {
         string memory allCommitments = "";
         for(uint i; i < players.length; i++){
-            allCommitments = allCommitments.toSlice().concat(protocol.stage0.playerCommitments[players[i]].toSlice());
+            allCommitments = allCommitments.toSlice().concat(
+                protocol.stageCommit.playerCommitments[players[i]].commitment.toSlice()
+            );
         }
         return sha3(allCommitments);
     }
