@@ -1,4 +1,4 @@
-var DistMpc = artifacts.require("./DistMpc.sol");
+var DistMpc = artifacts.require("./DistributedMpc.sol");
 
 contract('DistMpc', function(accounts) {
   it("should set the first account as coordinator", function() {

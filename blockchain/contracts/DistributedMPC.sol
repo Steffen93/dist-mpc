@@ -7,16 +7,17 @@ contract DistributedMPC is MultiPartyProtocol {
         join();
     }
     
-    function join() isInState(State.Join) isNewPlayer {
+    function join() public isInState(State.Join) isNewPlayer {
         players.push(msg.sender);
         PlayerJoined(msg.sender);
     }
     
-    function start() isInState(State.Join) isCoordinator returns (bool){
+    function start() public isInState(State.Join) isCoordinator returns (bool){
         return nextStage();
     }
 
     function commit(string commitment) 
+        public
         isInState(State.Commit) 
         isPlayer 
         isNotEmpty(commitment)
@@ -32,6 +33,7 @@ contract DistributedMPC is MultiPartyProtocol {
     }
 
     function publishPlayerData(string nizks, string publicKey)
+        public
         isInState(State.Nizks)
         isPlayer
         isNotEmpty(nizks)
@@ -48,39 +50,50 @@ contract DistributedMPC is MultiPartyProtocol {
     }
 
     function setInitialStage(string stage) 
+        public
         isCoordinator
+        isInStageTransformationState
     {
-        require(
-            currentState == State.Stage1 
-            || currentState == State.Stage2 
-            || currentState == State.Stage3
-        );
-        uint stateInt = uint(currentState) - uint(State.Stage1); // 0 for stage 1, ... 2 for stage 3
-        require(isStringEmpty(protocol.initialStages[stateInt]));
-        protocol.initialStages[stateInt] = stage;
+        uint stateIndex = uint(currentState) - uint(State.Stage1); // 0 for stage 1, ... 2 for stage 3
+        require(isStringEmpty(protocol.initialStages[stateIndex]));
+        protocol.initialStages[stateIndex] = stage;
         StagePrepared(uint(currentState));
     }
 
-    function publishStageOneResults(
-        string stageOneTransformed,
+    function publishStageResults(
+        string stageTransformed,
         string iHash
     )
-        isInState(State.Stage1)
+        public
+        isInStageTransformationState
         isPlayer
-        isNotEmpty(stageOneTransformed)
+        isNotEmpty(stageTransformed)
         isNotEmpty(iHash)
-        isEmpty(protocol.stageTransformations[0].playerCommitments[msg.sender].payload)
         previousPlayerCommitted
     {
-        //TODO: check that previous player has committed
-        /* FIXME: adapt to changes
-        bytes32 lastMessageHash = hashStageOneResults(
-            publicKey, 
-            nizks, 
-            stageOneTransformed, 
-            iHash
-        );
-        protocol.stage1.playerCommitments[msg.sender] = PlayerStage1(nizks, publicKey, Commitment(stageOneTransformed, lastMessageHash));
-        */
+        uint stateIndex = uint(currentState) - uint(State.Stage1);
+        require(isStringEmpty(protocol.stageTransformations[stateIndex].playerCommitments[msg.sender].payload));
+        bytes32 lastMessageHash = "";
+        if(currentState == State.Stage1){
+            string publicKey = protocol.stageCommit.playerCommitments[msg.sender].publicKey;
+            string nizks = protocol.stageCommit.playerCommitments[msg.sender].nizks;
+            lastMessageHash = hashValues(
+                publicKey, 
+                nizks, 
+                stageTransformed, 
+                iHash
+            );
+        } else if (currentState == State.Stage2) {
+            //TODO: Check if correct
+            lastMessageHash = hashValues(stageTransformed, iHash, "", "");
+        } else {
+            //TODO: Check if even used and if, how it is calculated in this stage
+            lastMessageHash = hashValues(stageTransformed, iHash, "", "");
+        }
+        protocol.stageTransformations[stateIndex].playerCommitments[msg.sender] = Commitment(stageTransformed, lastMessageHash);
+        StageResultPublished(msg.sender, stageTransformed, lastMessageHash);
+        if(isLastPlayer()){
+            nextStage();
+        }
     }
 }

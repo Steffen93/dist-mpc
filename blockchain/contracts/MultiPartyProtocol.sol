@@ -42,6 +42,7 @@ contract MultiPartyProtocol {
     event PlayerCommitted(address, string); //called when a player committed hash of public key
     event NextStage(uint);  //called when a new stage begins
     event StagePrepared(uint);  //called when the coordinator initialized a new stage (stage1, stage2, stage3)
+    event StageResultPublished(address, string, bytes32);
     
     modifier isCoordinator(){
         require(msg.sender == players[0]);
@@ -67,6 +68,14 @@ contract MultiPartyProtocol {
     
     modifier isInState(State s){
         require(currentState == s);
+        _;
+    }
+
+    modifier isInStageTransformationState(){
+        require(
+            currentState == State.Stage1 || 
+            currentState == State.Stage2 || 
+            currentState == State.Stage3);
         _;
     }
     
@@ -113,9 +122,9 @@ contract MultiPartyProtocol {
         protocol.r1cs = r1cs;
         protocol.initialStages = new string[](3);
         protocol.stageCommit = StageCommit("");
-        protocol.stageTransformations[0] = StageTransform();
-        protocol.stageTransformations[1] = StageTransform();
-        protocol.stageTransformations[2] = StageTransform();
+        protocol.stageTransformations.push(StageTransform());
+        protocol.stageTransformations.push(StageTransform());
+        protocol.stageTransformations.push(StageTransform());
         protocol.keypair = Keypair("", "");
     }
     
@@ -159,6 +168,10 @@ contract MultiPartyProtocol {
         require(false);
     }
 
+    function isLastPlayer() constant internal returns (bool) {
+        return players[players.length - 1] == msg.sender;
+    }
+
     function hashAllCommitments() constant internal returns (bytes32) {
         string memory allCommitments = "";
         for(uint i; i < players.length; i++){
@@ -184,6 +197,24 @@ contract MultiPartyProtocol {
             .concat(nizks.toSlice()).toSlice()
             .concat(s1Transformed.toSlice()).toSlice()
             .concat(iHash.toSlice())
+        );
+    }
+
+    function hashValues(
+        string str1, 
+        string str2, 
+        string str3, 
+        string str4
+    ) 
+        constant 
+        internal 
+        returns (bytes32) 
+    {
+        return sha3(
+            str1.toSlice()
+            .concat(str2.toSlice()).toSlice()
+            .concat(str3.toSlice()).toSlice()
+            .concat(str4.toSlice())
         );
     }
 
