@@ -38,11 +38,11 @@ contract MultiPartyProtocol {
         Keypair keypair;
     }
     
-    event PlayerJoined(address);    //called when a player joined the protocol
-    event PlayerCommitted(address, string); //called when a player committed hash of public key
-    event NextStage(uint);  //called when a new stage begins
-    event StagePrepared(uint);  //called when the coordinator initialized a new stage (stage1, stage2, stage3)
-    event StageResultPublished(address, string, bytes32);
+    event PlayerJoined(address player);    //called when a player joined the protocol
+    event PlayerCommitted(address player, string commitment); //called when a player committed hash of public key
+    event NextStage(uint stage);  //called when a new stage begins
+    event StagePrepared(uint stage);  //called when the coordinator initialized a new stage (stage1, stage2, stage3)
+    event StageResultPublished(address player, string result, bytes32 hash);
     
     modifier isCoordinator(){
         require(msg.sender == players[0]);
@@ -226,5 +226,22 @@ contract MultiPartyProtocol {
         assembly {
             result := mload(add(source, 32))
         }
+    }
+
+    function bytes32ToString(bytes32 x) constant returns (string) {
+        bytes memory bytesString = new bytes(32);
+        uint charCount = 0;
+        for (uint j = 0; j < 32; j++) {
+            byte char = byte(bytes32(uint(x) * 2 ** (8 * j)));
+            if (char != 0) {
+                bytesString[charCount] = char;
+                charCount++;
+            }
+        }
+        bytes memory bytesStringTrimmed = new bytes(charCount);
+        for (j = 0; j < charCount; j++) {
+            bytesStringTrimmed[j] = bytesString[j];
+        }
+        return string(bytesStringTrimmed);
     }
 }
