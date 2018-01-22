@@ -118,7 +118,7 @@ contract MultiPartyProtocol {
     address[] public players;
     Protocol protocol;
     
-    function MultiPartyProtocol(string r1cs) {
+    function MultiPartyProtocol(string r1cs) public {
         protocol.r1cs = r1cs;
         protocol.initialStages = new string[](3);
         protocol.stageCommit = StageCommit("");
@@ -228,7 +228,7 @@ contract MultiPartyProtocol {
         }
     }
 
-    function bytes32ToString(bytes32 x) constant returns (string) {
+    function bytes32ToString(bytes32 x) constant internal returns (string) {
         bytes memory bytesString = new bytes(32);
         uint charCount = 0;
         for (uint j = 0; j < 32; j++) {

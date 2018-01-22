@@ -8,145 +8,34 @@ extern crate rustc_serialize;
 extern crate blake2_rfc;
 extern crate bincode;
 extern crate byteorder;
+extern crate web3;
+extern crate ethabi; 
 
-#[macro_use]
 extern crate log;
 extern crate env_logger;
 extern crate time;
 extern crate ansi_term;
 
-#[macro_use]
-mod protocol;
-use self::protocol::*;
+mod events;
+use self::events::*;
+use ethabi::Event;
 
-mod consts;
-use self::consts::*;
-
-use snark::*;
-use std::net::{TcpListener, TcpStream};
-use std::io::{Read, Write};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::thread;
-use rustc_serialize::{Decodable, Encodable};
-use rustc_serialize::hex::ToHex;
-use bincode::SizeLimit::Infinite;
-use bincode::rustc_serialize::{encode_into, decode_from};
+use web3::futures::Future;
+use web3::contract::*;
+use web3::types::{Address, Filter, FilterBuilder, U256, H256, BlockNumber};
+use web3::{Transport};
+use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::{Read};
+use std::str::FromStr;
+use web3::api::*;
+use web3::api::FilterStream;
 use std::time::Duration;
+use std::thread;
 
-const LISTEN_ADDR: &'static str = "0.0.0.0:65530";
-const PLAYERS: usize = 1;
-pub const THREADS: usize = 128;
-
-#[derive(Clone)]
-struct ConnectionHandler {
-    peers: Arc<Mutex<HashMap<[u8; 8], Option<(TcpStream, u8, u8)>>>>,
-    notifier: Sender<[u8; 8]>
-}
-
+/*
 impl ConnectionHandler {
-    fn new() -> ConnectionHandler {
-        let (tx, rx) = channel();
 
-        let handler = ConnectionHandler {
-            peers: Arc::new(Mutex::new(HashMap::new())),
-            notifier: tx
-        };
-
-        {
-            let handler = handler.clone();
-            thread::spawn(move || {
-                handler.run(rx);
-            });
-        }
-
-        handler
-    }
-
-    fn do_with_stream<T, E, F: FnMut(&mut TcpStream, &mut u8, &u8) -> Result<T, E>>(&self, peerid: &[u8; 8], mut cb: F) -> T
-    {
-        let waittime = Duration::from_secs(10);
-
-        loop {
-            // The stream is always there, because we put it back
-            // even if it fails.
-            let (mut stream, mut our_msgid, their_msgid): (TcpStream, u8, u8) = {
-                let mut peers = self.peers.lock().unwrap();
-                peers.get_mut(peerid).unwrap().take()
-            }.unwrap();
-
-            let val = cb(&mut stream, &mut our_msgid, &their_msgid);
-
-            {
-                // Put it back
-                let mut peers = self.peers.lock().unwrap();
-                *peers.get_mut(peerid).unwrap() = Some((stream, our_msgid, their_msgid));
-            }
-
-            match val {
-                Err(_) => {
-                    thread::sleep(waittime);
-                },
-                Ok(v) => {
-                    return v
-                }
-            }
-        }
-    }
-
-    fn read<T: Decodable>(&self, peerid: &[u8; 8]) -> T
-    {
-        self.do_with_stream(peerid, |s, ourid, _| {
-            match decode_from(s, Infinite) {
-                Ok(v) => {
-                    let _ = s.write_all(&NETWORK_ACK);
-                    let _ = s.flush();
-
-                    *ourid += 1;
-
-                    Ok(v)
-                },
-                Err(e) => {
-                    Err(e)
-                }
-            }
-        })
-    }
-
-    fn write<T: Encodable>(&self, peerid: &[u8; 8], obj: &T)
-    {
-        let mut incremented = false;
-
-        self.do_with_stream(peerid, move |s, ourid, theirid| {
-            if !incremented {
-                *ourid += 1;
-                incremented = true;
-            }
-
-            if theirid >= ourid {
-                // They received it, we just didn't get an ACK back.
-                return Ok(())
-            }
-
-            if encode_into(obj, s, Infinite).is_err() {
-                return Err("couldn't send data".to_string());
-            }
-
-            if s.flush().is_err() {
-                return Err("couldn't flush buffer".to_string());
-            }
-
-            let mut ack: [u8; 4] = [0; 4];
-            let _ = s.read_exact(&mut ack);
-
-            if ack != NETWORK_ACK {
-                return Err("bad ack".to_string())
-            }
-
-            Ok(())
-        })
-    }
 
     fn run(&self, new_peers: Receiver<[u8; 8]>)
     {
@@ -353,89 +242,121 @@ impl ConnectionHandler {
         }
     }
 }
+*/
+
+fn get_file_name(path: &String) -> String {
+    return String::from(Path::new(path).file_stem().unwrap().to_str().unwrap());
+}
+
+fn get_file_path(out_folder: &String, file_name: &String, extension: &str) -> PathBuf {
+    let mut output_file_path = PathBuf::from(out_folder.as_str());
+    output_file_path.push(file_name);
+    output_file_path.set_extension(extension);
+    return output_file_path;
+}
+
+fn read_file_to_string(path: &PathBuf) -> String {
+    let mut output_contract_file = File::open(Path::new(path)).expect("Error opening file!");
+    let mut contents = String::new();
+    output_contract_file.read_to_string(&mut contents).expect("Error reading file!");
+    return contents;
+}
+
+fn get_bytes_from_string(string: &mut String) -> Vec<u8> {
+    let mut bytes: Vec<u8> = Vec::new();
+    while string.len() > 0 {
+        let substr: String = string.drain(..2).collect();
+        bytes.push(u8::from_str_radix(substr.as_str(), 16).unwrap());
+    }
+    return bytes;
+}
+
+fn get_current_state<T: Transport>(contract: &Contract<T>, account: &Address) -> u64 {
+    let currentState: U256 = contract.query("currentState", (), *account, Options::default(), BlockNumber::Latest).wait().expect("Error reading current state.");
+    return currentState.low_u64();
+}
 
 fn main() {
-    {
-        // Initialize the logger.
-        let start_time = time::now();
-        let format = move |record: &log::LogRecord| {
-            use ansi_term::Colour::*;
+    //get contract file(s)
+    let contract_address: Address = "0xd0278c39d3024b5975f1e9c3cc292eab37675950".parse().unwrap();
+    // connect to web3
+    println!("Connecting to Web3 instance...");
+    let (_eloop, transport) = web3::transports::Http::new("http://localhost:8545").expect("Web3 cannot connect! (http://localhost:8545)");
+    let web3 = web3::Web3::new(&transport);
+    println!("Successfully connected to web3 instance!");
 
-            let since = time::now() - start_time;
-            let hours = since.num_hours();
-            let minutes = since.num_minutes() % 60;
-            let seconds = since.num_seconds() % 60;
+    let default_account: Address = web3.eth().coinbase().wait().unwrap();
 
-            let level = match record.level() {
-                a @ log::LogLevel::Warn => {
-                    format!("{}", Yellow.bold().paint(format!("{}", a)))
-                },
-                a @ log::LogLevel::Error => {
-                    format!("{}", Red.bold().paint(format!("{}", a)))
-                },
-                a @ _ => {
-                    format!("{}", a)
-                }
-            };
+    let contract = Contract::from_json(
+        web3.eth(),
+        contract_address,
+        include_bytes!("../abi.json")
+    ).expect("Error loading contract from json!");
+    println!("{:?}", contract.address());
+    let events = EventContract::from_json(
+        web3.eth(),
+        include_bytes!("../abi.json")
+    ).expect("Error loading event contract from json!");
+    let event: &Event = events.event("NextStage").expect("Event should exist!");
+    println!("Event signature: {:?}", event.signature());
 
-            format!("({}) [T+{}h{}m{}s]: {}", level, hours, minutes, seconds, record.args())
-        };
+    // contract magic:
+    // 
+    let mut filterBuilder: FilterBuilder = FilterBuilder::default();
+    filterBuilder = filterBuilder.topics(Some(vec![H256::from_str("0xf2f13d712bddc038fd1341d24bad63155a3e68fb5b398cb8f170cd736c277505").unwrap()]), None, None, None);
+    let filter: Filter = filterBuilder.build();
+    let createFilter = web3.eth_filter().create_logs_filter(filter);
+    let baseFilter = createFilter.wait().expect("Filter should be registerable!");
 
-        let mut builder = env_logger::LogBuilder::new();
-        builder.format(format).filter(None, log::LogLevelFilter::Info);
-        builder.init().unwrap();
-    }
+    let mut currentState: u64 = get_current_state(&contract, &default_account);
+    println!("Current State: {:?}", currentState);
+    //start protocol:
 
-    info!("Opening TCP listener on {}", LISTEN_ADDR);
-    let listener = TcpListener::bind(LISTEN_ADDR).unwrap();
-
-    let handler = ConnectionHandler::new();
-
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-                let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-
-                match stream.peer_addr() {
-                    Ok(addr) => {
-                        let mut magic = [0; 8];
-                        let mut peerid = [0; 8];
-                        let mut msgi_buf: [u8; 1] = [0];
-
-                        match stream.read_exact(&mut magic)
-                                    .and_then(|_| stream.read_exact(&mut peerid))
-                                    .and_then(|_| stream.read_exact(&mut msgi_buf))
-                        {
-                            Err(e) => {
-                                warn!("Remote host {} did not handshake; {}", addr, e);
-                            },
-                            Ok(_) => {
-                                if magic != NETWORK_MAGIC {
-                                    warn!("Remote host {} did not supply correct network magic.", addr);
-                                } else {
-                                    if
-                                        stream.write_all(&COORDINATOR_MAGIC).is_ok() &&
-                                        stream.flush().is_ok() &&
-                                        stream.set_read_timeout(Some(Duration::from_secs(NETWORK_TIMEOUT))).is_ok() &&
-                                        stream.set_write_timeout(Some(Duration::from_secs(NETWORK_TIMEOUT))).is_ok()
-                                    {
-                                        handler.accept(peerid, stream, msgi_buf[0]);
-                                    } else {
-                                        warn!("Failed to set read/write timeouts for remote host {}", addr);
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        warn!("Failed connection attempt from unknown host: {}", e);
-                    }
-                }
-            },
-            Err(e) => {
-                warn!("Failed to establish connection with remote client, {}", e);
-            }
+    contract.call("start", (), default_account, Options::default()).wait().expect("Start failed!");
+    println!("Started!");
+    let duration = Duration::new(0, 100);
+    loop {
+        let result = baseFilter.poll().wait().expect("Base Filter should return result!").expect("Polling result should be valid!");
+        if result.len() > 0{
+            println!("{:?}", result[0].data);
+            break;
         }
+        thread::sleep(duration);
     }
+
+    currentState = get_current_state(&contract, &default_account);
+    println!("Current State: {:?}", currentState);
+    //Commit to first stage
+    println!("Please enter commitment: ");
+    let mut commitment = String::new();
+    std::io::stdin().read_line(&mut commitment).expect("Failed to read line");
+    commitment.pop(); // remove trailing line break
+    contract.call("commit", commitment.clone(), default_account, Options::default()).wait().expect("Commit failed!");
+    println!("Committed!");
+    loop {
+        let result = baseFilter.poll().wait().expect("Base Filter should return result!").expect("Polling result should be valid!");
+        if result.len() > 0{
+            println!("{:?}", result[0].data);
+            break;
+        }
+        thread::sleep(duration);
+    }
+
+    currentState = get_current_state(&contract, &default_account);
+    println!("Current State: {:?}", currentState);
+    //Publish nizks and public key to verify commitment
+    let hashed_commitment: H256 = web3.web3().sha3(commitment.clone().into()).wait().unwrap();
+    println!("Hashed commitment: {:?}", hashed_commitment);
+    contract.call("publishPlayerData", (String::from("Thisismynizks"), format!("{}",hashed_commitment)), default_account, Options::default()).wait().expect("Error publishing commitment origin!");
+    currentState = get_current_state(&contract, &default_account);
+    println!("Current State: {:?}", currentState);
+    loop {
+        let result = baseFilter.poll().wait().expect("Base Filter should return result!").expect("Polling result should be valid!");
+        if result.len() > 0{
+            println!("{:?}", result[0].data);
+            break;
+        }
+        thread::sleep(duration);
+    }
+    // assume that we start from scratch, later: get current state
 }

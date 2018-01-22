@@ -3,16 +3,29 @@ pragma solidity ^0.4.0;
 import "./MultiPartyProtocol.sol";
 
 contract DistributedMPC is MultiPartyProtocol {
-    function DistributedMPC(string r1cs) isNotEmpty(r1cs) MultiPartyProtocol(r1cs) {
+    function DistributedMPC(string r1cs) 
+        public
+        isNotEmpty(r1cs) 
+        MultiPartyProtocol(r1cs) 
+    {
         join();
     }
     
-    function join() public isInState(State.Join) isNewPlayer {
+    function join() 
+        public 
+        isInState(State.Join) 
+        isNewPlayer 
+    {
         players.push(msg.sender);
         PlayerJoined(msg.sender);
     }
     
-    function start() public isInState(State.Join) isCoordinator returns (bool){
+    function start() 
+        public 
+        isInState(State.Join) 
+        isCoordinator 
+        returns (bool)
+    {
         return nextStage();
     }
 
