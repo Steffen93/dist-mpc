@@ -51,13 +51,13 @@ contract DistributedMPC is MultiPartyProtocol {
         isPlayer
         isNotEmpty(nizks)
         isNotEmpty(publicKey)
-        //isEmpty(protocol.stageCommit.playerCommitments[msg.sender].nizks)
-        //isEmpty(protocol.stageCommit.playerCommitments[msg.sender].publicKey)
+        isEmpty(protocol.stageCommit.playerCommitments[msg.sender].nizks)
+        isEmpty(protocol.stageCommit.playerCommitments[msg.sender].publicKey)
     {
         // TO BE TESTED: A) why does the require not work in both cases? B) Why are the commented modifiers not working? -> Remix!
-        //require(bytes32ToString(sha3(publicKey)).toSlice().equals(
-        //    protocol.stageCommit.playerCommitments[msg.sender].commitment.toSlice())
-        //);
+        require(bytes32ToString(sha3(publicKey)).toSlice().equals(
+            protocol.stageCommit.playerCommitments[msg.sender].commitment.toSlice())
+        );
         //require(sha3(publicKey) == stringToBytes32(protocol.stageCommit.playerCommitments[msg.sender].commitment));
         protocol.stageCommit.playerCommitments[msg.sender].nizks = nizks;
         protocol.stageCommit.playerCommitments[msg.sender].publicKey = publicKey;

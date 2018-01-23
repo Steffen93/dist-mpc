@@ -51,6 +51,7 @@ blake2-rfc = "0.2.17"
 byteorder = "0.5"
 tokio-core = "0.1.9"
 futures = "0.1"
+serde = "1.0"
 # web3 = "0.1.0"
 
 # Coordinator needs these

@@ -10,15 +10,12 @@ extern crate bincode;
 extern crate byteorder;
 extern crate web3;
 extern crate ethabi; 
+extern crate serde;
 
 extern crate log;
 extern crate env_logger;
 extern crate time;
 extern crate ansi_term;
-
-mod events;
-use self::events::*;
-use ethabi::Event;
 
 use web3::futures::Future;
 use web3::contract::*;
@@ -28,8 +25,6 @@ use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::{Read};
 use std::str::FromStr;
-use web3::api::*;
-use web3::api::FilterStream;
 use std::time::Duration;
 use std::thread;
 
@@ -293,12 +288,6 @@ fn main() {
         include_bytes!("../abi.json")
     ).expect("Error loading contract from json!");
     println!("{:?}", contract.address());
-    let events = EventContract::from_json(
-        web3.eth(),
-        include_bytes!("../abi.json")
-    ).expect("Error loading event contract from json!");
-    let event: &Event = events.event("NextStage").expect("Event should exist!");
-    println!("Event signature: {:?}", event.signature());
 
     // contract magic:
     // 
@@ -308,55 +297,66 @@ fn main() {
     let createFilter = web3.eth_filter().create_logs_filter(filter);
     let baseFilter = createFilter.wait().expect("Filter should be registerable!");
 
-    let mut currentState: u64 = get_current_state(&contract, &default_account);
-    println!("Current State: {:?}", currentState);
+    //let mut currentState: u64 = get_current_state(&contract, &default_account);
+    //println!("Current State: {:?}", currentState);
     //start protocol:
 
-    contract.call("start", (), default_account, Options::default()).wait().expect("Start failed!");
-    println!("Started!");
-    let duration = Duration::new(0, 100);
-    loop {
-        let result = baseFilter.poll().wait().expect("Base Filter should return result!").expect("Polling result should be valid!");
-        if result.len() > 0{
-            println!("{:?}", result[0].data);
-            break;
-        }
-        thread::sleep(duration);
-    }
-
-    currentState = get_current_state(&contract, &default_account);
-    println!("Current State: {:?}", currentState);
-    //Commit to first stage
-    println!("Please enter commitment: ");
+    let duration = Duration::new(1, 0);
     let mut commitment = String::new();
-    std::io::stdin().read_line(&mut commitment).expect("Failed to read line");
-    commitment.pop(); // remove trailing line break
-    contract.call("commit", commitment.clone(), default_account, Options::default()).wait().expect("Commit failed!");
-    println!("Committed!");
-    loop {
-        let result = baseFilter.poll().wait().expect("Base Filter should return result!").expect("Polling result should be valid!");
-        if result.len() > 0{
-            println!("{:?}", result[0].data);
-            break;
+    let mut stop = false;
+    while !stop {
+        match get_current_state(&contract, &default_account) {
+            0 => {
+                contract.call("start", (), default_account, Options::default()).wait().expect("Start failed!");
+                println!("Started!");
+                loop {
+                    let result = baseFilter.poll().wait().expect("Base Filter should return result!").expect("Polling result should be valid!");
+                    if result.len() > 0 {
+                        let data: &Vec<u8> = &result[0].data.0;
+                        println!("New Stage: {:?}", U256::from(data.as_slice()).low_u64());
+                        break;
+                    }
+                    thread::sleep(duration);
+                }
+            },
+            1 => {
+                println!("Please enter commitment: ");
+                std::io::stdin().read_line(&mut commitment).expect("Failed to read line");
+                commitment.pop(); // remove trailing line break
+                let hashed_commitment: H256 = web3.web3().sha3(commitment.clone().into()).wait().unwrap();
+                println!("Hashed commitment: {:?}", hashed_commitment);
+                contract.call("commit", format!("{}",hashed_commitment), default_account, Options::default()).wait().expect("Commit failed!");
+                println!("Committed!");
+                loop {
+                    let result = baseFilter.poll().wait().expect("Base Filter should return result!").expect("Polling result should be valid!");
+                    if result.len() > 0 {
+                        let data: &Vec<u8> = &result[0].data.0;
+                        println!("New Stage: {:?}", U256::from(data.as_slice()).low_u64());
+                        break;
+                    }
+                    thread::sleep(duration);
+                }
+            },
+            2 => {
+                contract.call("publishPlayerData", (String::from("Thisismynizks"), commitment.clone()), default_account, Options::default()).wait().expect("Error publishing commitment origin!");
+                loop {
+                    let result = baseFilter.poll().wait().expect("Base Filter should return result!").expect("Polling result should be valid!");
+                    if result.len() > 0 {
+                        let data: &Vec<u8> = &result[0].data.0;
+                        println!("New Stage: {:?}", U256::from(data.as_slice()).low_u64());
+                        break;
+                    }
+                    thread::sleep(duration);
+                }
+            },
+            _ => {
+                stop = true;
+            }
         }
-        thread::sleep(duration);
     }
+        
 
-    currentState = get_current_state(&contract, &default_account);
-    println!("Current State: {:?}", currentState);
-    //Publish nizks and public key to verify commitment
-    let hashed_commitment: H256 = web3.web3().sha3(commitment.clone().into()).wait().unwrap();
-    println!("Hashed commitment: {:?}", hashed_commitment);
-    contract.call("publishPlayerData", (String::from("Thisismynizks"), format!("{}",hashed_commitment)), default_account, Options::default()).wait().expect("Error publishing commitment origin!");
-    currentState = get_current_state(&contract, &default_account);
-    println!("Current State: {:?}", currentState);
-    loop {
-        let result = baseFilter.poll().wait().expect("Base Filter should return result!").expect("Polling result should be valid!");
-        if result.len() > 0{
-            println!("{:?}", result[0].data);
-            break;
-        }
-        thread::sleep(duration);
-    }
+
+        
     // assume that we start from scratch, later: get current state
 }
