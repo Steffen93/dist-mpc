@@ -15,3 +15,5 @@ Cargo.lock
 **/r1cs
 
 **/build/
+
+mpc/src/rust-web3/

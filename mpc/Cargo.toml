@@ -30,6 +30,11 @@ path = "src/compute.rs"
 test = false
 
 [[bin]]
+name = "player"
+path = "src/player.rs"
+test = false
+
+[[bin]]
 name = "network"
 path = "src/network.rs"
 test = false
@@ -51,7 +56,10 @@ blake2-rfc = "0.2.17"
 byteorder = "0.5"
 tokio-core = "0.1.9"
 futures = "0.1"
-serde = "1.0"
+sha3 = "0.7.2"
+generic-array = "^0.9"
+digest = "^0.7"
+ascii = "0.8"
 # web3 = "0.1.0"
 
 # Coordinator needs these

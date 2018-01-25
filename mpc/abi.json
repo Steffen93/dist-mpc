@@ -22,7 +22,7 @@
         },
         {
           "name": "publicKey",
-          "type": "string"
+          "type": "bytes"
         }
       ],
       "name": "publishPlayerData",
@@ -40,39 +40,6 @@
         }
       ],
       "name": "setInitialStage",
-      "outputs": [],
-      "payable": false,
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "constant": true,
-      "inputs": [
-        {
-          "name": "x",
-          "type": "bytes32"
-        }
-      ],
-      "name": "bytes32ToString",
-      "outputs": [
-        {
-          "name": "",
-          "type": "string"
-        }
-      ],
-      "payable": false,
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "constant": false,
-      "inputs": [
-        {
-          "name": "commitment",
-          "type": "string"
-        }
-      ],
-      "name": "commit",
       "outputs": [],
       "payable": false,
       "stateMutability": "nonpayable",
@@ -97,6 +64,20 @@
           "type": "bool"
         }
       ],
+      "payable": false,
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "constant": false,
+      "inputs": [
+        {
+          "name": "commitment",
+          "type": "bytes32"
+        }
+      ],
+      "name": "commit",
+      "outputs": [],
       "payable": false,
       "stateMutability": "nonpayable",
       "type": "function"
@@ -172,7 +153,7 @@
         {
           "indexed": false,
           "name": "commitment",
-          "type": "string"
+          "type": "bytes32"
         }
       ],
       "name": "PlayerCommitted",
@@ -224,4 +205,4 @@
       "name": "StageResultPublished",
       "type": "event"
     }
-  ]
+]

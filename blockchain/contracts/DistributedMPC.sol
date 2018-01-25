@@ -1,4 +1,4 @@
-pragma solidity ^0.4.0;
+pragma solidity ^0.4.11;
 
 import "./MultiPartyProtocol.sol";
 
@@ -29,12 +29,12 @@ contract DistributedMPC is MultiPartyProtocol {
         return nextStage();
     }
 
-    function commit(string commitment) 
+    function commit(bytes32 commitment) 
         public
         isInState(State.Commit) 
         isPlayer 
-        isNotEmpty(commitment)
-        isEmpty(protocol.stageCommit.playerCommitments[msg.sender].commitment)
+        isNotEmptyBytes32(commitment)
+        isEmptyBytes32(protocol.stageCommit.playerCommitments[msg.sender].commitment)
     {
         protocol.stageCommit.playerCommitments[msg.sender].commitment = commitment;
         PlayerCommitted(msg.sender, commitment);
@@ -45,20 +45,16 @@ contract DistributedMPC is MultiPartyProtocol {
         }
     }
 
-    function publishPlayerData(string nizks, string publicKey)
+    function publishPlayerData(string nizks, bytes publicKey)
         public
         isInState(State.Nizks)
         isPlayer
         isNotEmpty(nizks)
-        isNotEmpty(publicKey)
+        isNotEmptyBytes(publicKey)
         isEmpty(protocol.stageCommit.playerCommitments[msg.sender].nizks)
-        isEmpty(protocol.stageCommit.playerCommitments[msg.sender].publicKey)
+        isEmptyBytes(protocol.stageCommit.playerCommitments[msg.sender].publicKey)
     {
-        // TO BE TESTED: A) why does the require not work in both cases? B) Why are the commented modifiers not working? -> Remix!
-        require(bytes32ToString(sha3(publicKey)).toSlice().equals(
-            protocol.stageCommit.playerCommitments[msg.sender].commitment.toSlice())
-        );
-        //require(sha3(publicKey) == stringToBytes32(protocol.stageCommit.playerCommitments[msg.sender].commitment));
+        require(keccak256(publicKey) == protocol.stageCommit.playerCommitments[msg.sender].commitment);
         protocol.stageCommit.playerCommitments[msg.sender].nizks = nizks;
         protocol.stageCommit.playerCommitments[msg.sender].publicKey = publicKey;
         if(allPlayerDataReady()){
@@ -92,10 +88,11 @@ contract DistributedMPC is MultiPartyProtocol {
         require(isStringEmpty(protocol.stageTransformations[stateIndex].playerCommitments[msg.sender].payload));
         bytes32 lastMessageHash = "";
         if(currentState == State.Stage1){
-            string publicKey = protocol.stageCommit.playerCommitments[msg.sender].publicKey;
-            string nizks = protocol.stageCommit.playerCommitments[msg.sender].nizks;
+            bytes storage publicKey = protocol.stageCommit.playerCommitments[msg.sender].publicKey;
+            string storage nizks = protocol.stageCommit.playerCommitments[msg.sender].nizks;
+            string memory pubkey = string(publicKey);
             lastMessageHash = hashValues(
-                publicKey, 
+                pubkey, 
                 nizks, 
                 stageTransformed, 
                 iHash

@@ -1,4 +1,4 @@
-pragma solidity ^0.4.0;
+pragma solidity ^0.4.11;
 
 import "./strings.sol";
 
@@ -10,9 +10,9 @@ contract MultiPartyProtocol {
     }
 
     struct PlayerCommitment {
-        string commitment;
+        bytes32 commitment;
         string nizks;
-        string publicKey;
+        bytes publicKey;
         string iHash;
     }
 
@@ -39,7 +39,7 @@ contract MultiPartyProtocol {
     }
     
     event PlayerJoined(address player);    //called when a player joined the protocol
-    event PlayerCommitted(address player, string commitment); //called when a player committed hash of public key
+    event PlayerCommitted(address player, bytes32 commitment); //called when a player committed hash of public key
     event NextStage(uint stage);  //called when a new stage begins
     event StagePrepared(uint stage);  //called when the coordinator initialized a new stage (stage1, stage2, stage3)
     event StageResultPublished(address player, string result, bytes32 hash);
@@ -53,6 +53,16 @@ contract MultiPartyProtocol {
         require(isStringEmpty(s));
         _;
     }
+    
+    modifier isEmptyBytes(bytes h){
+        require(h.length == 0);
+        _;
+    }
+
+    modifier isEmptyBytes32(bytes32 h){
+        require(h == "");
+        _;
+    }
 
     modifier isNewPlayer (){
         for(uint i = 0; i < players.length; i++){
@@ -63,6 +73,16 @@ contract MultiPartyProtocol {
 
     modifier isNotEmpty(string s){
         require(!isStringEmpty(s));
+        _;
+    }
+    
+    modifier isNotEmptyBytes(bytes h){
+        require(h.length > 0);
+        _;
+    }
+
+    modifier isNotEmptyBytes32(bytes32 h){
+        require(h.length > 0);
         _;
     }
     
@@ -141,7 +161,7 @@ contract MultiPartyProtocol {
     
     function allCommitmentsReady() constant internal returns (bool) {
         for(uint i = 0; i < players.length; i++){
-            if(isStringEmpty(protocol.stageCommit.playerCommitments[players[i]].commitment)){
+            if(protocol.stageCommit.playerCommitments[players[i]].commitment.length == 0){
                 return false;
             }
         }
@@ -151,8 +171,8 @@ contract MultiPartyProtocol {
     function allPlayerDataReady() constant internal returns (bool) {
         for(uint i = 0; i < players.length; i++){
             string memory nizks = protocol.stageCommit.playerCommitments[players[i]].nizks;
-            string memory pubKey = protocol.stageCommit.playerCommitments[players[i]].publicKey;
-            if(isStringEmpty(nizks) || isStringEmpty(pubKey)){
+            bytes memory pubKey = protocol.stageCommit.playerCommitments[players[i]].publicKey;
+            if(isStringEmpty(nizks) || isBytesEmpty(pubKey)){
                 return false;
             }
         }
@@ -176,10 +196,10 @@ contract MultiPartyProtocol {
         string memory allCommitments = "";
         for(uint i; i < players.length; i++){
             allCommitments = allCommitments.toSlice().concat(
-                protocol.stageCommit.playerCommitments[players[i]].commitment.toSlice()
+                bytes32ToString(protocol.stageCommit.playerCommitments[players[i]].commitment).toSlice()
             );
         }
-        return sha3(allCommitments);
+        return keccak256(allCommitments);
     }
 
     function hashStageOneResults(
@@ -192,7 +212,7 @@ contract MultiPartyProtocol {
         internal 
         returns (bytes32) 
     {
-        return sha3(
+        return keccak256(
             pubKey.toSlice()
             .concat(nizks.toSlice()).toSlice()
             .concat(s1Transformed.toSlice()).toSlice()
@@ -210,7 +230,7 @@ contract MultiPartyProtocol {
         internal 
         returns (bytes32) 
     {
-        return sha3(
+        return keccak256(
             str1.toSlice()
             .concat(str2.toSlice()).toSlice()
             .concat(str3.toSlice()).toSlice()
@@ -218,17 +238,21 @@ contract MultiPartyProtocol {
         );
     }
 
-    function isStringEmpty(string s) constant internal returns (bool) {
-        return bytes(s).length == 0;
+    function isStringEmpty(string s) pure internal returns (bool) {
+        return isBytesEmpty(bytes(s));
     }
 
-    function stringToBytes32(string memory source) constant internal returns (bytes32 result) {
+    function isBytesEmpty(bytes b) pure internal returns (bool) {
+        return b.length == 0;
+    }
+
+    function stringToBytes32(string memory source) pure internal returns (bytes32 result) {
         assembly {
             result := mload(add(source, 32))
         }
     }
 
-    function bytes32ToString(bytes32 x) constant internal returns (string) {
+    function bytes32ToString(bytes32 x) pure internal returns (string) {
         bytes memory bytesString = new bytes(32);
         uint charCount = 0;
         for (uint j = 0; j < 32; j++) {

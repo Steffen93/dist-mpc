@@ -7,12 +7,10 @@ extern crate rustc_serialize;
 extern crate blake2_rfc;
 extern crate bincode;
 extern crate byteorder;
+extern crate sha3;
 
 mod protocol;
 use self::protocol::*;
-
-//mod dvd;
-//use self::dvd::*;
 
 mod file;
 use self::file::*;
@@ -74,7 +72,8 @@ fn main() {
 
     let privkey = PrivateKey::new(&mut chacha_rng);
     let pubkey = privkey.pubkey(&mut chacha_rng);
-    let comm = pubkey.hash();
+    let comm = pubkey.hash(); 
+    let commString = String::from_utf8(Vec::from(comm)).unwrap();
 
     let (hash_of_commitments, mut stage1, prev_msg_hash): (Digest512, Stage1Contents, Digest256) = read_file(
         "A",
@@ -82,7 +81,7 @@ fn main() {
                   Write this commitment down on paper.\n\n\
                   Then type the above commitment into the networked machine.\n\n\
                   The networked machine should produce file 'A'.\n\n\
-                  When file 'A' is in ready, press [ENTER].", comm.to_string()),
+                  When file 'A' is in ready, press [ENTER].", commString),
         |f, p| -> Result<_, bincode::rustc_serialize::DecodingError> {
             let hash_of_commitments: Digest512 = try!(decode_from(f, Infinite));
             let stage: Stage1Contents = try!(decode_from(f, Infinite));

@@ -2,7 +2,10 @@ use bn::*;
 use rand::Rng;
 use super::spair::{Spair, same_power};
 use super::nizk::Nizk;
-use super::digest::{Digest512,Digest256};
+use super::digest::{Digest512};
+use bincode::SizeLimit::Infinite;
+use bincode::rustc_serialize::encode;
+use sha3::{Digest, Keccak256};
 #[cfg(feature = "snark")]
 use snark::*;
 use rustc_serialize::{Encodable, Encoder, Decodable, Decoder};
@@ -30,7 +33,7 @@ struct PublicKeyInner {
     f8_gamma: Spair<G1> // (f8, f8 * gamma)
 }
 
-#[derive(RustcEncodable, RustcDecodable)]
+#[derive(RustcEncodable, RustcDecodable)] 
 pub struct PublicKeyNizks {
     tau: Nizk<G2>,
     alpha_a: Nizk<G1>,
@@ -73,8 +76,12 @@ impl PublicKey {
         same_power(&self.0.f8_gamma, &Spair::new(self.0.f2_beta, self.0.f2_beta_gamma).unwrap())
     }
 
-    pub fn hash(&self) -> Digest256 {
-        Digest256::from(self).expect("PublicKey should never fail to encode")
+    pub fn hash(&self) -> Vec<u8> {
+        let mut hasher = Keccak256::default();
+        //println!("Encoded object: {:?}", encode(self, Infinite).unwrap().as_slice());
+        hasher.input(encode(self, Infinite).unwrap().as_slice()); 
+        let result = hasher.result();
+        result.as_slice().to_owned()
     }
 
     pub fn nizks<R: Rng>(&self, rng: &mut R, privkey: &PrivateKey, extra: &Digest512) -> PublicKeyNizks {

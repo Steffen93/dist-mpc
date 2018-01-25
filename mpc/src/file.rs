@@ -22,7 +22,7 @@ pub fn reset() {
 pub fn prompt(s: &str) -> String {
     loop {
         let mut input = String::new();
-        reset();
+        //reset();
         println!("{}", s);
         println!("\x07");
 
