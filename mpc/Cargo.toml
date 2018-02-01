@@ -57,10 +57,8 @@ byteorder = "0.5"
 tokio-core = "0.1.9"
 futures = "0.1"
 sha3 = "0.7.2"
-generic-array = "^0.9"
 digest = "^0.7"
-ascii = "0.8"
-# web3 = "0.1.0"
+web3 = { git = "https://github.com/tomusdrw/rust-web3" }
 
 # Coordinator needs these
 log = "*"
@@ -73,5 +71,5 @@ version = "0.6.0"
 default-features = false
 features = ["rustc-serialize"]
 
-[dependencies.web3]
-path = "src/rust-web3"
+# [dependencies.web3]
+# path = "src/rust-web3"

@@ -9,9 +9,7 @@ extern crate bincode;
 extern crate byteorder;
 extern crate sha3;
 extern crate web3;
-extern crate generic_array;
 extern crate digest;
-extern crate ascii;
 
 mod protocol;
 use self::protocol::*;
@@ -26,7 +24,7 @@ use bincode::rustc_serialize::{encode, encode_into, decode_from};
 
 use web3::futures::Future;
 use web3::contract::*;
-use web3::types::{Address, Filter, FilterBuilder, U256, H256, BlockNumber};
+use web3::types::{Address, Bytes, Filter, FilterBuilder, U256, H256, BlockNumber};
 use web3::{Transport};
 use std::path::{Path, PathBuf};
 use std::io::{Read};
@@ -35,7 +33,6 @@ use std::env;
 use std::time::Duration;
 use std::thread;
 use std::fmt::Write;
-use ascii::{AsciiString};
 
 pub const THREADS: usize = 8;
 pub const DIRECTORY_PREFIX: &'static str = "/home/compute/";
@@ -168,7 +165,7 @@ fn main() {
     println!("{:?}", contract.address());
 
     // contract magic:
-     
+    
     let mut filterBuilder: FilterBuilder = FilterBuilder::default();
     filterBuilder = filterBuilder.topics(Some(vec![H256::from_str("0xf2f13d712bddc038fd1341d24bad63155a3e68fb5b398cb8f170cd736c277505").unwrap()]), None, None, None);
     let filter: Filter = filterBuilder.build();
@@ -206,7 +203,6 @@ fn main() {
                 }
             },
             1 => {
-                //println!("Hashed commitment: {:?}", hashed_commitment);
                 contract.call("commit", to_bytes_fixed(&commitment.clone()), default_account, Options::with(|opt| {opt.gas = Some(U256::from(5000000))})).wait().expect("Commit failed!");
                 println!("Committed!");
                 loop {
@@ -220,7 +216,8 @@ fn main() {
                 }
             },
             2 => {
-                contract.call("publishPlayerData", (String::from("Thisismynizks"), pubkey_encoded.clone()), default_account, Options::with(|opt| {opt.gas = Some(U256::from(5000000))})).wait().expect("Error publishing commitment origin!");
+                println!("Pubkey hex: {:?}", get_hex_string(&pubkey_encoded.clone()));
+                contract.call("publishPlayerData", (String::from("Thisismynizks").into_bytes(), pubkey_encoded.clone()), default_account, Options::with(|opt| {opt.gas = Some(U256::from(5000000))})).wait().expect("Error publishing commitment origin!");
                 loop {
                     let result = baseFilter.poll().wait().expect("Base Filter should return result!").expect("Polling result should be valid!");
                     if result.len() > 0 {
@@ -230,6 +227,11 @@ fn main() {
                     }
                     thread::sleep(duration);
                 }
+            },
+            3 => {
+                let hash: Vec<u8> = contract.query("getHashOfAllCommitments", (), default_account, Options::default(), BlockNumber::Latest).wait().expect("Error reading hash of commitments.");
+                println!("Hash of all commitments: {}", get_hex_string(&hash));
+                stop = true;
             },
             _ => {
                 stop = true;

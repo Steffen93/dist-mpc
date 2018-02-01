@@ -17,8 +17,36 @@
       "constant": false,
       "inputs": [
         {
+          "name": "stageTransformed",
+          "type": "bytes"
+        }
+      ],
+      "name": "publishStageResults",
+      "outputs": [],
+      "payable": false,
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "constant": true,
+      "inputs": [],
+      "name": "getHashOfAllCommitments",
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "payable": false,
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "constant": false,
+      "inputs": [
+        {
           "name": "nizks",
-          "type": "string"
+          "type": "bytes"
         },
         {
           "name": "publicKey",
@@ -26,20 +54,6 @@
         }
       ],
       "name": "publishPlayerData",
-      "outputs": [],
-      "payable": false,
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "constant": false,
-      "inputs": [
-        {
-          "name": "stage",
-          "type": "string"
-        }
-      ],
-      "name": "setInitialStage",
       "outputs": [],
       "payable": false,
       "stateMutability": "nonpayable",
@@ -72,11 +86,11 @@
       "constant": false,
       "inputs": [
         {
-          "name": "commitment",
-          "type": "bytes32"
+          "name": "stage",
+          "type": "bytes"
         }
       ],
-      "name": "commit",
+      "name": "setInitialStage",
       "outputs": [],
       "payable": false,
       "stateMutability": "nonpayable",
@@ -86,15 +100,11 @@
       "constant": false,
       "inputs": [
         {
-          "name": "stageTransformed",
-          "type": "string"
-        },
-        {
-          "name": "iHash",
-          "type": "string"
+          "name": "commitment",
+          "type": "bytes32"
         }
       ],
-      "name": "publishStageResults",
+      "name": "commit",
       "outputs": [],
       "payable": false,
       "stateMutability": "nonpayable",
@@ -194,12 +204,7 @@
         {
           "indexed": false,
           "name": "result",
-          "type": "string"
-        },
-        {
-          "indexed": false,
-          "name": "hash",
-          "type": "bytes32"
+          "type": "bytes"
         }
       ],
       "name": "StageResultPublished",
