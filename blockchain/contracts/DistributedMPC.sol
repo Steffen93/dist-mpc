@@ -36,25 +36,31 @@ contract DistributedMPC is MultiPartyProtocol {
         isNotEmptyBytes32(commitment)
         isEmptyBytes32(protocol.stageCommit.playerCommitments[msg.sender].commitment)
     {
+        protocol.stageCommit.playerCommitments[msg.sender].initialized = true;
         protocol.stageCommit.playerCommitments[msg.sender].commitment = commitment;
+        protocol.stageCommit.commitmentLength += commitment.length;
         PlayerCommitted(msg.sender, commitment);
         if(allCommitmentsReady()){
-            bytes32 hashOfAllCommitments = hashAllCommitments();
-            protocol.stageCommit.lastMessageHash = hashOfAllCommitments;
+            protocol.stageCommit.hashOfAllCommitments = hashAllCommitments();
             nextStage();
         }
     }
 
-    function publishPlayerData(string nizks, bytes publicKey)
+    function getHashOfAllCommitments() public constant returns(bytes32){
+        return protocol.stageCommit.hashOfAllCommitments;
+    }
+
+    function publishPlayerData(bytes nizks, bytes publicKey)
         public
         isInState(State.Nizks)
         isPlayer
-        isNotEmpty(nizks)
+        isNotEmptyBytes(nizks)
         isNotEmptyBytes(publicKey)
-        isEmpty(protocol.stageCommit.playerCommitments[msg.sender].nizks)
+        isEmptyBytes(protocol.stageCommit.playerCommitments[msg.sender].nizks)
         isEmptyBytes(protocol.stageCommit.playerCommitments[msg.sender].publicKey)
     {
         require(keccak256(publicKey) == protocol.stageCommit.playerCommitments[msg.sender].commitment);
+        require(publicKey.length == 2069);
         protocol.stageCommit.playerCommitments[msg.sender].nizks = nizks;
         protocol.stageCommit.playerCommitments[msg.sender].publicKey = publicKey;
         if(allPlayerDataReady()){
@@ -62,50 +68,36 @@ contract DistributedMPC is MultiPartyProtocol {
         }
     }
 
-    function setInitialStage(string stage) 
+    function setInitialStage(bytes stage) 
         public
         isCoordinator
         isInStageTransformationState
     {
         uint stateIndex = uint(currentState) - uint(State.Stage1); // 0 for stage 1, ... 2 for stage 3
-        require(isStringEmpty(protocol.initialStages[stateIndex]));
+        require(isBytesEmpty(protocol.initialStages[stateIndex]));
         protocol.initialStages[stateIndex] = stage;
         StagePrepared(uint(currentState));
     }
 
     function publishStageResults(
-        string stageTransformed,
-        string iHash
+        bytes stageTransformed
     )
         public
         isInStageTransformationState
         isPlayer
-        isNotEmpty(stageTransformed)
-        isNotEmpty(iHash)
+        isNotEmptyBytes(stageTransformed)
         previousPlayerCommitted
     {
         uint stateIndex = uint(currentState) - uint(State.Stage1);
-        require(isStringEmpty(protocol.stageTransformations[stateIndex].playerCommitments[msg.sender].payload));
-        bytes32 lastMessageHash = "";
+        require(isBytesEmpty(protocol.stageTransformations[stateIndex].playerCommitments[msg.sender]));
         if(currentState == State.Stage1){
-            bytes storage publicKey = protocol.stageCommit.playerCommitments[msg.sender].publicKey;
-            string storage nizks = protocol.stageCommit.playerCommitments[msg.sender].nizks;
-            string memory pubkey = string(publicKey);
-            lastMessageHash = hashValues(
-                pubkey, 
-                nizks, 
-                stageTransformed, 
-                iHash
-            );
-        } else if (currentState == State.Stage2) {
-            //TODO: Check if correct
-            lastMessageHash = hashValues(stageTransformed, iHash, "", "");
+            // bytes storage publicKey = protocol.stageCommit.playerCommitments[msg.sender].publicKey;
+            // bytes storage nizks = protocol.stageCommit.playerCommitments[msg.sender].nizks;
         } else {
-            //TODO: Check if even used and if, how it is calculated in this stage
-            lastMessageHash = hashValues(stageTransformed, iHash, "", "");
+            // TODO: handle
         }
-        protocol.stageTransformations[stateIndex].playerCommitments[msg.sender] = Commitment(stageTransformed, lastMessageHash);
-        StageResultPublished(msg.sender, stageTransformed, lastMessageHash);
+        protocol.stageTransformations[stateIndex].playerCommitments[msg.sender] = stageTransformed;
+        StageResultPublished(msg.sender, stageTransformed);
         if(isLastPlayer()){
             nextStage();
         }
