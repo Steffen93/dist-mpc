@@ -28,32 +28,14 @@
       "type": "function"
     },
     {
-      "constant": true,
-      "inputs": [],
-      "name": "getHashOfAllCommitments",
-      "outputs": [
-        {
-          "name": "",
-          "type": "bytes32"
-        }
-      ],
-      "payable": false,
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "constant": false,
       "inputs": [
         {
           "name": "nizks",
           "type": "bytes"
-        },
-        {
-          "name": "publicKey",
-          "type": "bytes"
         }
       ],
-      "name": "publishPlayerData",
+      "name": "publishNizks",
       "outputs": [],
       "payable": false,
       "stateMutability": "nonpayable",
@@ -78,6 +60,20 @@
           "type": "bool"
         }
       ],
+      "payable": false,
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "constant": false,
+      "inputs": [
+        {
+          "name": "publicKey",
+          "type": "bytes"
+        }
+      ],
+      "name": "revealCommitment",
+      "outputs": [],
       "payable": false,
       "stateMutability": "nonpayable",
       "type": "function"
@@ -210,4 +206,4 @@
       "name": "StageResultPublished",
       "type": "event"
     }
-]
+  ]
