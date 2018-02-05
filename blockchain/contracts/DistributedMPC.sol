@@ -34,36 +34,40 @@ contract DistributedMPC is MultiPartyProtocol {
         isInState(State.Commit) 
         isPlayer 
         isNotEmptyBytes32(commitment)
-        isEmptyBytes32(protocol.stageCommit.playerCommitments[msg.sender].commitment)
+        isEmptyBytes32(protocol.stageCommit.playerData[msg.sender].commitment)
     {
-        protocol.stageCommit.playerCommitments[msg.sender].initialized = true;
-        protocol.stageCommit.playerCommitments[msg.sender].commitment = commitment;
-        protocol.stageCommit.commitmentLength += commitment.length;
+        protocol.stageCommit.playerData[msg.sender].initialized = true;
+        protocol.stageCommit.playerData[msg.sender].commitment = commitment;
         PlayerCommitted(msg.sender, commitment);
         if(allCommitmentsReady()){
-            protocol.stageCommit.hashOfAllCommitments = hashAllCommitments();
+            nextStage();
+        }
+    }
+    
+    function revealCommitment(bytes publicKey)
+        public
+        isInState(State.Reveal)
+        isPlayer
+        isNotEmptyBytes(publicKey)
+        isEmptyBytes(protocol.stageCommit.playerData[msg.sender].publicKey)
+    {
+        require(keccak256(publicKey) == protocol.stageCommit.playerData[msg.sender].commitment);
+        require(publicKey.length == 2069);
+        protocol.stageCommit.playerData[msg.sender].publicKey = publicKey;
+        if(allCommitmentsRevealed()){
             nextStage();
         }
     }
 
-    function getHashOfAllCommitments() public constant returns(bytes32){
-        return protocol.stageCommit.hashOfAllCommitments;
-    }
-
-    function publishPlayerData(bytes nizks, bytes publicKey)
+    function publishNizks(bytes nizks)
         public
         isInState(State.Nizks)
         isPlayer
         isNotEmptyBytes(nizks)
-        isNotEmptyBytes(publicKey)
-        isEmptyBytes(protocol.stageCommit.playerCommitments[msg.sender].nizks)
-        isEmptyBytes(protocol.stageCommit.playerCommitments[msg.sender].publicKey)
+        isEmptyBytes(protocol.stageCommit.playerData[msg.sender].nizks)
     {
-        require(keccak256(publicKey) == protocol.stageCommit.playerCommitments[msg.sender].commitment);
-        require(publicKey.length == 2069);
-        protocol.stageCommit.playerCommitments[msg.sender].nizks = nizks;
-        protocol.stageCommit.playerCommitments[msg.sender].publicKey = publicKey;
-        if(allPlayerDataReady()){
+        protocol.stageCommit.playerData[msg.sender].nizks = nizks;
+        if(allNizksReady()){
             nextStage();
         }
     }
@@ -89,14 +93,14 @@ contract DistributedMPC is MultiPartyProtocol {
         previousPlayerCommitted
     {
         uint stateIndex = uint(currentState) - uint(State.Stage1);
-        require(isBytesEmpty(protocol.stageTransformations[stateIndex].playerCommitments[msg.sender]));
+        require(isBytesEmpty(protocol.stageTransformations[stateIndex].playerData[msg.sender]));
         if(currentState == State.Stage1){
-            // bytes storage publicKey = protocol.stageCommit.playerCommitments[msg.sender].publicKey;
-            // bytes storage nizks = protocol.stageCommit.playerCommitments[msg.sender].nizks;
+            // bytes storage publicKey = protocol.stageCommit.playerData[msg.sender].publicKey;
+            // bytes storage nizks = protocol.stageCommit.playerData[msg.sender].nizks;
         } else {
             // TODO: handle
         }
-        protocol.stageTransformations[stateIndex].playerCommitments[msg.sender] = stageTransformed;
+        protocol.stageTransformations[stateIndex].playerData[msg.sender] = stageTransformed;
         StageResultPublished(msg.sender, stageTransformed);
         if(isLastPlayer()){
             nextStage();

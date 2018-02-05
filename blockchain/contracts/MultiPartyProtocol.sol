@@ -2,7 +2,7 @@ pragma solidity ^0.4.11;
 
 contract MultiPartyProtocol {
 
-    struct PlayerCommitment {
+    struct PlayerData {
         bool initialized;
         bytes32 commitment;
         bytes nizks;
@@ -10,13 +10,11 @@ contract MultiPartyProtocol {
     }
 
     struct StageCommit {
-        mapping (address => PlayerCommitment) playerCommitments;
-        bytes32 hashOfAllCommitments;    // == hash of all commitments
-        uint commitmentLength;
+        mapping (address => PlayerData) playerData;
     }
 
     struct StageTransform {
-        mapping (address => bytes) playerCommitments;
+        mapping (address => bytes) playerData;
     }
 
     struct Keypair {
@@ -120,14 +118,14 @@ contract MultiPartyProtocol {
             require(
                 !isBytesEmpty(
                     protocol.stageTransformations[stageIndex]
-                    .playerCommitments[players[pIndex-1]]
+                    .playerData[players[pIndex-1]]
                 )
             );
         }
         _;
     }
     
-    enum State {Join, Commit, Nizks, Stage1, Stage2, Stage3, Finished}
+    enum State {Join, Commit, Reveal, Nizks, Stage1, Stage2, Stage3, Finished}
     State public currentState = State.Join;
     address[] public players;
     Protocol protocol;
@@ -135,7 +133,7 @@ contract MultiPartyProtocol {
     function MultiPartyProtocol(string r1cs) public {
         protocol.r1cs = r1cs;
         protocol.initialStages = new bytes[](3);
-        protocol.stageCommit = StageCommit("", 0);
+        protocol.stageCommit = StageCommit();
         protocol.stageTransformations.push(StageTransform());
         protocol.stageTransformations.push(StageTransform());
         protocol.stageTransformations.push(StageTransform());
@@ -155,20 +153,28 @@ contract MultiPartyProtocol {
     
     function allCommitmentsReady() constant internal returns (bool) {
         for(uint i = 0; i < players.length; i++){
-            if(!protocol.stageCommit.playerCommitments[players[i]].initialized ||
-            protocol.stageCommit.playerCommitments[players[i]].commitment.length == 0){
+            if(!protocol.stageCommit.playerData[players[i]].initialized ||
+            protocol.stageCommit.playerData[players[i]].commitment.length == 0){
                 return false;
             }
         }
         return true;
     }
 
-    function allPlayerDataReady() constant internal returns (bool) {
+    function allNizksReady() constant internal returns (bool) {
         for(uint i = 0; i < players.length; i++){
-            bytes memory nizks = protocol.stageCommit.playerCommitments[players[i]].nizks;
-            bytes memory pubKey = protocol.stageCommit.playerCommitments[players[i]].publicKey;
-            if(!protocol.stageCommit.playerCommitments[players[i]].initialized 
-            || isBytesEmpty(nizks) 
+            if(!protocol.stageCommit.playerData[players[i]].initialized ||
+            protocol.stageCommit.playerData[players[i]].nizks.length == 0){
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function allCommitmentsRevealed() constant internal returns (bool) {
+        for(uint i = 0; i < players.length; i++){
+            bytes memory pubKey = protocol.stageCommit.playerData[players[i]].publicKey;
+            if(!protocol.stageCommit.playerData[players[i]].initialized 
             || isBytesEmpty(pubKey)){
                 return false;
             }
@@ -189,18 +195,19 @@ contract MultiPartyProtocol {
         return players[players.length - 1] == msg.sender;
     }
 
+/*
     function hashAllCommitments() view internal returns (bytes32) {
         uint keysize = 32;
         bytes memory allCommitments = new bytes(keysize*players.length);
         for(uint i = 0; i < players.length; i++){
-            bytes32 commitment = protocol.stageCommit.playerCommitments[players[i]].commitment;
+            bytes32 commitment = protocol.stageCommit.playerData[players[i]].commitment;
             for(uint j = 0; j < keysize; j++){
                 allCommitments[(i*keysize)+j] = commitment[j];
             }
         }
         return keccak256(allCommitments);
         /*
-        mapping(address => PlayerCommitment) commitments = protocol.stageCommit.playerCommitments;
+        mapping(address => PlayerCommitment) commitments = protocol.stageCommit.playerData;
         assembly {
             let offset := 0
             let totalOffset := 0
@@ -213,10 +220,9 @@ contract MultiPartyProtocol {
                 }
                 totalOffset := add(totalOffset, 0x7F7)                                              //add total offset for next player
                 sstore(concatCommitments, result)
-            } 
-        }*/
-        
+            }         
     }
+        }*/
 
     function isStringEmpty(string s) pure internal returns (bool) {
         return isBytesEmpty(bytes(s));
