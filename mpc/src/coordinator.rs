@@ -10,7 +10,6 @@ extern crate bincode;
 extern crate byteorder;
 extern crate web3;
 extern crate ethabi; 
-extern crate serde;
 
 extern crate log;
 extern crate env_logger;

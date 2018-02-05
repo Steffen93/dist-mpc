@@ -31,6 +31,8 @@
 
 use bn::*;
 
+extern crate sha3;
+
 #[cfg(feature = "snark")]
 use snark::*;
 

@@ -1,3 +1,4 @@
+use super::sha3::{Digest, Keccak256};
 use bn::*;
 use rand::Rng;
 use super::spair::{Spair, same_power};
@@ -5,7 +6,6 @@ use super::nizk::Nizk;
 use super::digest::{Digest512};
 use bincode::SizeLimit::Infinite;
 use bincode::rustc_serialize::encode;
-use sha3::{Digest, Keccak256};
 #[cfg(feature = "snark")]
 use snark::*;
 use rustc_serialize::{Encodable, Encoder, Decodable, Decoder};
@@ -77,11 +77,7 @@ impl PublicKey {
     }
 
     pub fn hash(&self) -> Vec<u8> {
-        let mut hasher = Keccak256::default();
-        //println!("Encoded object: {:?}", encode(self, Infinite).unwrap().as_slice());
-        hasher.input(encode(self, Infinite).unwrap().as_slice()); 
-        let result = hasher.result();
-        result.as_slice().to_owned()
+        Keccak256::digest(encode(self, Infinite).unwrap().as_slice()).as_slice().to_owned()
     }
 
     pub fn nizks<R: Rng>(&self, rng: &mut R, privkey: &PrivateKey, extra: &Digest512) -> PublicKeyNizks {
