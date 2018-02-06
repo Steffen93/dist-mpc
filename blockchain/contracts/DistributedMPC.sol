@@ -65,7 +65,7 @@ contract DistributedMPC is MultiPartyProtocol {
         isPlayer
         isNotEmptyBytes(nizks)
         isEmptyBytes(protocol.stageCommit.playerData[msg.sender].nizks)
-    {
+    {                                   
         protocol.stageCommit.playerData[msg.sender].nizks = nizks;
         if(allNizksReady()){
             nextStage();
@@ -77,6 +77,7 @@ contract DistributedMPC is MultiPartyProtocol {
         isCoordinator
         isInStageTransformationState
     {
+        require(stage.length == 46);                                // 46 = length of IPFS hash
         uint stateIndex = uint(currentState) - uint(State.Stage1); // 0 for stage 1, ... 2 for stage 3
         require(isBytesEmpty(protocol.initialStages[stateIndex]));
         protocol.initialStages[stateIndex] = stage;
@@ -92,14 +93,9 @@ contract DistributedMPC is MultiPartyProtocol {
         isNotEmptyBytes(stageTransformed)
         previousPlayerCommitted
     {
+        require(stageTransformed.length == 46);
         uint stateIndex = uint(currentState) - uint(State.Stage1);
         require(isBytesEmpty(protocol.stageTransformations[stateIndex].playerData[msg.sender]));
-        if(currentState == State.Stage1){
-            // bytes storage publicKey = protocol.stageCommit.playerData[msg.sender].publicKey;
-            // bytes storage nizks = protocol.stageCommit.playerData[msg.sender].nizks;
-        } else {
-            // TODO: handle
-        }
         protocol.stageTransformations[stateIndex].playerData[msg.sender] = stageTransformed;
         StageResultPublished(msg.sender, stageTransformed);
         if(isLastPlayer()){

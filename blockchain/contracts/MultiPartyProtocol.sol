@@ -84,10 +84,7 @@ contract MultiPartyProtocol {
     }
 
     modifier isInStageTransformationState(){
-        require(
-            currentState == State.Stage1 || 
-            currentState == State.Stage2 || 
-            currentState == State.Stage3);
+        require(isInTransformationStage());
         _;
     }
     
@@ -105,11 +102,7 @@ contract MultiPartyProtocol {
 
     modifier previousPlayerCommitted() {
         uint pIndex = getPlayerIndex();
-        require(
-            currentState == State.Stage1
-            || currentState == State.Stage2
-            || currentState == State.Stage3
-        );
+        require(isInTransformationStage());
         uint stageIndex = uint(currentState) - uint(State.Stage1);
         if(pIndex == 0){
             bytes storage initialStage = protocol.initialStages[stageIndex];
@@ -193,6 +186,10 @@ contract MultiPartyProtocol {
 
     function isLastPlayer() constant internal returns (bool) {
         return players[players.length - 1] == msg.sender;
+    }
+
+    function isInTransformationStage() constant internal returns (bool){
+        return currentState == State.Stage1 || currentState == State.Stage2 || currentState == State.Stage3;
     }
 
 /*
