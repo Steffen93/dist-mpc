@@ -9,11 +9,13 @@ extern crate sha3;
 extern crate web3;
 extern crate ipfs_api;
 extern crate serde_json;
+extern crate ethabi;
 #[macro_use]
 extern crate serde_derive; 
 
 mod protocol;
 use self::protocol::*;
+use protocol::{Transform, Verify};
 
 mod file;
 use self::file::*;
@@ -25,17 +27,19 @@ use snark::*;
 use rand::{SeedableRng, Rng};
 use std::fs::{File};
 use bincode::SizeLimit::Infinite;
-use bincode::rustc_serialize::{encode_into, encode};
+use bincode::rustc_serialize::{encode_into, encode, decode};
 use sha3::{Digest, Keccak256};
-use rustc_serialize::{Encodable};
+use rustc_serialize::{Encodable, Decodable};
 
 use web3::futures::Future;
 use web3::contract::*;
+use web3::contract::tokens::{Tokenize, Tokenizable, Detokenize};
 use web3::types::{Address, Filter, FilterBuilder, Log, U256, H256, BlockNumber};
 use web3::{Transport};
 use web3::transports::Http;
 use web3::api::BaseFilter;
 use web3::Web3;
+use ethabi::Token;
 
 use ipfs_api::IPFS;
 
@@ -98,8 +102,8 @@ fn get_entropy() -> [u32; 8] {
     seed
 }
 
-fn get_current_state<T: Transport>(contract: &Contract<T>, account: &Address) -> u64 {
-    let current_state: U256 = contract.query("currentState", (), *account, Options::default(), BlockNumber::Latest).wait().expect("Error reading current state.");
+fn get_current_state<T: Transport>(contract: &Contract<&T>, account: Address) -> u64 {
+    let current_state: U256 = query_contract_default(contract, "currentState", (), account);
     current_state.low_u64()
 }
 
@@ -127,10 +131,6 @@ fn create_filter<'a>(web3: &Web3<&'a Http>, topic: &str) -> BaseFilter<&'a Http,
     let filter: Filter = filter_builder.build();
     let create_filter = web3.eth_filter().create_logs_filter(filter);
     create_filter.wait().expect("Filter should be registerable!")
-}
-
-fn encode_and_hash<T: Encodable>(obj: &T) -> Vec<u8> {
-    Keccak256::digest(&encode(obj, Infinite).unwrap()).as_slice().to_owned()
 }
 
 fn await_next_stage(filter: &BaseFilter<&Http, Log>, poll_interval: &Duration) {
@@ -163,6 +163,45 @@ fn upload_to_ipfs<T: Encodable>(obj: &T, name: &str, ipfs: &mut IPFS) -> IPFSAdd
     let result = ipfs.add(name);
     println!("{:?}", String::from_utf8(result.clone()).unwrap());
     serde_json::from_slice(result.as_slice()).unwrap()
+}
+
+fn query_contract_default<T,P,R>(contract: &Contract<&T>, method: &str, params: P, account: Address) -> R where 
+    P: Tokenize,
+    R: Detokenize,
+    T: Transport
+{
+    contract.query(method, params, account, Options::default(), BlockNumber::Latest).wait().expect(format!("Error querying contract method {:?}", method).as_str())
+}
+
+fn call_contract<T, P>(contract: &Contract<&T>, method: &str, params: P, account: Address) where 
+    T: Transport,
+    P: Tokenize
+{
+    let tokens = params.into_tokens();
+    let gas = contract.estimate_gas(method, tokens.clone().as_slice(), account, Options::default()).wait().unwrap();
+    println!("Gas estimation: {:?}", gas.low_u64());
+    contract.call(method, tokens.as_slice(), account, Options::with(|opt|{opt.gas = Some(gas)})).wait().expect(format!("Error calling contract method {:?}", method).as_str());
+}
+
+fn download_stage<S, T>(contract: &Contract<&T>, account: Address, ipfs: &mut IPFS) -> S where 
+    S: Transform + Verify + Clone + Encodable + Decodable,
+    T: Transport
+{
+    let stage_hash: Vec<u8> = query_contract_default(&contract, "getLatestTransformation", (), account);
+    println!("Latest transformation hash: {:?}", String::from_utf8(stage_hash.clone()).unwrap());
+    println!("Downloading stage from ipfs...");
+    decode(&ipfs.cat(String::from_utf8(stage_hash).unwrap().as_str())).expect("Should match stage object!")
+}
+
+fn transform_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, contract: &Contract<&T>, account: Address, file_name: &str, ipfs: &mut IPFS) where
+    S: Transform + Verify + Clone + Encodable + Decodable,
+    T: Transport
+{
+
+    println!("Transforming stage...");
+    stage.transform(privkey);
+    let stage_transformed_ipfs = upload_to_ipfs(stage, file_name, ipfs);
+    call_contract(contract, "publishStageResults", stage_transformed_ipfs.hash.into_bytes(), account);
 }
 
 fn main() {
@@ -207,28 +246,28 @@ fn main() {
 
     let duration = Duration::new(1, 0);
     let mut stop = false;
-    let mut stage1;
-    let mut stage2;
-    let mut stage3;
     //TODO: Only Coordinator!
     //TODO: load real r1cs
     let cs = CS::dummy();
     //end of Only Coordinator!
+    let mut stage1: Stage1Contents;
+    let mut stage2: Stage2Contents;
+    let mut stage3: Stage3Contents;
     while !stop {
-        match get_current_state(&contract, &default_account) {
+        match get_current_state(&contract, default_account) {
             0 => {
-                contract.call("start", (), default_account, Options::default()).wait().expect("Start failed!");
-                println!("Started!");
+                call_contract(&contract, "start", (), default_account);
+                println!("Started!"); 
                 await_next_stage(&next_stage_filter, &duration);
             },
             1 => {
-                contract.call("commit", to_bytes_fixed(&commitment.clone()), default_account, Options::default()).wait().expect("Commit failed!");
+                call_contract(&contract, "commit", to_bytes_fixed(&commitment.clone()), default_account);
                 println!("Committed!");
                 await_next_stage(&next_stage_filter, &duration);
             },
             2 => {
                 println!("Pubkey hex: {:?}", get_hex_string(&pubkey_encoded.clone()));
-                contract.call("revealCommitment", (pubkey_encoded.clone()), default_account, Options::with(|opt|{opt.gas = Some(U256::from(5000000))})).wait().expect("Error revealing commitment origin!");
+                call_contract(&contract, "revealCommitment", (pubkey_encoded.clone()), default_account);
                 await_next_stage(&next_stage_filter, &duration);
             },
             3 => {
@@ -241,64 +280,56 @@ fn main() {
                 println!("Nizks created.");
                 let nizks_encoded = encode(&nizks, Infinite).unwrap();
                 println!("size of nizks: {} B", nizks_encoded.len());
-                contract.call("publishNizks", (nizks_encoded), default_account, Options::with(|opt|{opt.gas = Some(U256::from(5000000))})).wait().expect("Error publishing nizks!");
+                call_contract(&contract, "publishNizks", nizks_encoded, default_account);
                 await_next_stage(&next_stage_filter, &duration);
             },
             current_stage @ 4 ... 6 => {
+                /*
+                BEGINNING OF ONLY COORDINATOR
+                 */
                 if current_stage == 4 {
-                    //TODO: Only Coordinator!
                     println!("Creating stage...");
                     stage1 = Stage1Contents::new(&cs);
-                    let stage1_uploaded = upload_to_ipfs(&stage1, "stage1", &mut ipfs);
-                    println!("Stage1 size: {} B", stage1_uploaded.size);
-
-                    contract.call("setInitialStage", (stage1_uploaded.hash.into_bytes()), default_account, Options::default()).wait().expect("Error publishing initial stage 1!");
+                    let stage1_ipfs = upload_to_ipfs(&stage1, "stage1", &mut ipfs);
+                    println!("Stage1 size: {} B", stage1_ipfs.size);
+                    call_contract(&contract, "setInitialStage", stage1_ipfs.hash.into_bytes(), default_account);
                     await_stage_prepared(&stage_prepared_filter, &duration);
-                    //END of Only coordinator
-                    println!("Transforming stage...");
-                    stage1.transform(&privkey);
-                    let stage1_transformed_hash = encode_and_hash(&stage1);
-                    //------------------------------------------------------
-                    // TODO: continue here with next ipfs upload
-                    //------------------------------------------------------
-                    contract.call("publishStageResults", (stage1_transformed_hash), default_account, Options::default()).wait().expect("Error publishing results of stage 1!");
                     drop(stage1);
                 } else if current_stage == 5 {
-                    //TODO: Only Coordinator!
-                    println!("Creating stage...");
-                    // TODO: load stage1 final from ipfs
-                    stage1 = Stage1Contents::new(&cs);
-                    stage1.transform(&privkey);
+                    stage1 = download_stage(&contract, default_account, &mut ipfs);
                     stage2 = Stage2Contents::new(&cs, &stage1);
-                    let stage2_hash = encode_and_hash(&stage2);
-                    contract.call("setInitialStage", (stage2_hash), default_account, Options::default()).wait().expect("Error publishing initial stage 2!");
+                    let stage2_ipfs = upload_to_ipfs(&stage2, "stage2", &mut ipfs);
+                    println!("Stage2 size: {} B", stage2_ipfs.size);
+                    call_contract(&contract, "setInitialStage", stage2_ipfs.hash.into_bytes(), default_account);
                     await_stage_prepared(&stage_prepared_filter, &duration);
-                    //END of Only coordinator
-                    println!("Transforming stage...");
-                    stage2.transform(&privkey);
-                    let stage2_transformed_hash = encode_and_hash(&stage2);
-                    contract.call("publishStageResults", (stage2_transformed_hash), default_account, Options::default()).wait().expect("Error publishing results of stage 2!");
                     drop(stage1);
                     drop(stage2);
                 } else {
-                    //TODO: Only Coordinator!
                     println!("Creating stage...");
-                    stage1 = Stage1Contents::new(&cs);
-                    stage1.transform(&privkey);
-                    // TODO: load stage2 final from ipfs
-                    stage2 = Stage2Contents::new(&cs, &stage1);
-                    stage2.transform(&privkey);
+                    stage2 = download_stage(&contract, default_account, &mut ipfs);
                     stage3 = Stage3Contents::new(&cs, &stage2);
-                    let stage3_hash = encode_and_hash(&stage3);
-                    contract.call("setInitialStage", (stage3_hash), default_account, Options::default()).wait().expect("Error publishing initial stage 3!");
+                    let stage3_ipfs = upload_to_ipfs(&stage3, "stage3", &mut ipfs);
+                    println!("Stage3 size: {} B", stage3_ipfs.size);
+                    call_contract(&contract, "setInitialStage", stage3_ipfs.hash.into_bytes(), default_account);
                     await_stage_prepared(&stage_prepared_filter, &duration);
-                    //END of Only coordinator
-                    println!("Transforming stage...");
-                    stage3.transform(&privkey);
-                    let stage3_transformed_hash = encode_and_hash(&stage3);
-                    contract.call("publishStageResults", (stage3_transformed_hash), default_account, Options::default()).wait().expect("Error publishing results of stage 3!");
-                    drop(stage1);
                     drop(stage2);
+                    drop(stage3);
+                }
+                /*
+                END OF ONLY COORDINATOR
+                 */
+
+                if current_stage == 4 {
+                    stage1 = download_stage(&contract, default_account, &mut ipfs);
+                    transform_and_upload(&mut stage1, &privkey, &contract, default_account, "stage1_transformed", &mut ipfs);
+                    drop(stage1);
+                } else if current_stage == 5 {
+                    stage2 = download_stage(&contract, default_account, &mut ipfs);
+                    transform_and_upload(&mut stage2, &privkey, &contract, default_account, "stage2_transformed", &mut ipfs);
+                    drop(stage2);
+                } else {
+                    stage3 = download_stage(&contract, default_account, &mut ipfs);
+                    transform_and_upload(&mut stage3, &privkey, &contract, default_account, "stage3_transformed", &mut ipfs);
                     drop(stage3);
                 }
                 await_next_stage(&next_stage_filter, &duration);

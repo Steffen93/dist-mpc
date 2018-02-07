@@ -50,6 +50,15 @@ use self::multicore::*;
 #[cfg(feature = "snark")]
 mod qap;
 
+pub trait Transform {
+    fn transform(&mut self, &PrivateKey);
+}
+
+pub trait Verify {
+    fn is_well_formed(& self, &Self) -> bool;
+    fn verify_transform(&self, &Self, &PublicKey) -> bool;
+}
+
 /// The powers of tau.
 #[derive(Clone, RustcEncodable, RustcDecodable)]
 pub struct Stage1Contents {
@@ -65,8 +74,10 @@ impl Stage1Contents {
             v2: (0..cs.d+1).map(|_| G2::one()).collect()
         }
     }
+}
 
-    pub fn transform(&mut self, s: &PrivateKey) {
+impl Transform for Stage1Contents {
+    fn transform(&mut self, s: &PrivateKey) {
         parallel_two(&mut self.v1, &mut self.v2, |start, v1, v2| {
             let mut c = s.tau.pow(Fr::from_str(&format!("{}", start)).unwrap());
 
@@ -79,8 +90,10 @@ impl Stage1Contents {
             }
         }, ::THREADS);
     }
+}
 
-    pub fn is_well_formed(&self, prev: &Self) -> bool {
+impl Verify for Stage1Contents {
+    fn is_well_formed(&self, prev: &Self) -> bool {
         self.v1.len() == prev.v1.len() &&
         self.v2.len() == prev.v2.len() &&
         self.v1[0] == G1::one() &&
@@ -93,7 +106,7 @@ impl Stage1Contents {
         !prev.v2[1].is_zero()
     }
 
-    pub fn verify_transform(&self, prev: &Self, p: &PublicKey) -> bool {
+    fn verify_transform(&self, prev: &Self, p: &PublicKey) -> bool {
         self.is_well_formed(prev) &&
         same_power(
             &Spair::new(prev.v1[1], self.v1[1]).unwrap(),
@@ -125,7 +138,6 @@ impl Stage2Contents {
     pub fn new(cs: &CS, stage1: &Stage1Contents) -> Self {
         // evaluate QAP for the next round
         let (at, bt1, bt2, ct) = qap::evaluate(&stage1.v1, &stage1.v2, cs);
-
         Stage2Contents {
             vk_a: G2::one(),
             vk_b: G1::one(),
@@ -140,8 +152,10 @@ impl Stage2Contents {
             pk_c_prime: ct.clone()
         }
     }
+}
 
-    pub fn transform(&mut self, s: &PrivateKey) {
+impl Transform for Stage2Contents {
+    fn transform(&mut self, s: &PrivateKey) {
         self.vk_a = self.vk_a * s.alpha_a;
         self.vk_b = self.vk_b * s.alpha_b;
         self.vk_c = self.vk_c * s.alpha_c;
@@ -154,8 +168,10 @@ impl Stage2Contents {
         mul_all_by(&mut self.pk_c, s.rho_a * s.rho_b);
         mul_all_by(&mut self.pk_c_prime, s.rho_a * s.rho_b * s.alpha_c);
     }
+}
 
-    pub fn is_well_formed(&self, prev: &Self) -> bool {
+impl Verify for Stage2Contents {
+    fn is_well_formed(&self, prev: &Self) -> bool {
         !prev.vk_a.is_zero() &&
         !prev.vk_b.is_zero() &&
         !prev.vk_c.is_zero() &&
@@ -174,7 +190,7 @@ impl Stage2Contents {
         self.pk_c_prime.len() == prev.pk_c_prime.len()
     }
 
-    pub fn verify_transform(&self, prev: &Self, p: &PublicKey) -> bool {
+    fn verify_transform(&self, prev: &Self, p: &PublicKey) -> bool {
         self.is_well_formed(prev) &&
         // Check parts of the verification key
         same_power(
@@ -266,16 +282,20 @@ impl Stage3Contents {
             pk_k: pk_k
         }
     }
+}
 
-    pub fn transform(&mut self, s: &PrivateKey) {
+impl Transform for Stage3Contents {
+    fn transform(&mut self, s: &PrivateKey) {
         let betagamma = s.beta * s.gamma;
         self.vk_gamma = self.vk_gamma * s.gamma;
         self.vk_beta_gamma_one = self.vk_beta_gamma_one * betagamma;
         self.vk_beta_gamma_two = self.vk_beta_gamma_two * betagamma;
         mul_all_by(&mut self.pk_k, s.beta);
     }
+}
 
-    pub fn is_well_formed(&self, prev: &Self) -> bool {
+impl Verify for Stage3Contents {
+    fn is_well_formed(&self, prev: &Self) -> bool {
         !prev.vk_gamma.is_zero() &&
         !prev.vk_beta_gamma_one.is_zero() &&
         !prev.vk_beta_gamma_two.is_zero() &&
@@ -285,7 +305,7 @@ impl Stage3Contents {
         self.pk_k.len() == prev.pk_k.len()
     }
 
-    pub fn verify_transform(&self, prev: &Self, p: &PublicKey) -> bool {
+    fn verify_transform(&self, prev: &Self, p: &PublicKey) -> bool {
         self.is_well_formed(prev) &&
         same_power(
             &Spair::new(prev.vk_gamma, self.vk_gamma).unwrap(),
