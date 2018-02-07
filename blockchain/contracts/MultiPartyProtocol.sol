@@ -28,6 +28,7 @@ contract MultiPartyProtocol {
         StageCommit stageCommit;
         StageTransform[] stageTransformations;
         Keypair keypair;
+        bytes latestTransformation;
     }
     
     event PlayerJoined(address player);    //called when a player joined the protocol
@@ -131,6 +132,7 @@ contract MultiPartyProtocol {
         protocol.stageTransformations.push(StageTransform());
         protocol.stageTransformations.push(StageTransform());
         protocol.keypair = Keypair("", "");
+        protocol.latestTransformation = "";
     }
     
     function nextStage() internal returns (bool){
@@ -143,7 +145,6 @@ contract MultiPartyProtocol {
         }
     }
 
-    
     function allCommitmentsReady() constant internal returns (bool) {
         for(uint i = 0; i < players.length; i++){
             if(!protocol.stageCommit.playerData[players[i]].initialized ||
@@ -191,35 +192,6 @@ contract MultiPartyProtocol {
     function isInTransformationStage() constant internal returns (bool){
         return currentState == State.Stage1 || currentState == State.Stage2 || currentState == State.Stage3;
     }
-
-/*
-    function hashAllCommitments() view internal returns (bytes32) {
-        uint keysize = 32;
-        bytes memory allCommitments = new bytes(keysize*players.length);
-        for(uint i = 0; i < players.length; i++){
-            bytes32 commitment = protocol.stageCommit.playerData[players[i]].commitment;
-            for(uint j = 0; j < keysize; j++){
-                allCommitments[(i*keysize)+j] = commitment[j];
-            }
-        }
-        return keccak256(allCommitments);
-        /*
-        mapping(address => PlayerCommitment) commitments = protocol.stageCommit.playerData;
-        assembly {
-            let offset := 0
-            let totalOffset := 0
-            let p := sload(keccak256(players_slot, players_offset))
-            let concatCommitments := mload(0x40)                                                    //empty storage pointer
-            for{let i := 0} lt(i, players_slot) {i := add(i, 0x1)} {                                  //for each player
-                let commitments := sload(commitments_slot)                                          //load commitment
-                for{} lt(offset, 0x7F7) {offset := add(offset, 0x20)}{                              //for all words in pubkey
-                    mstore(add(concatCommitments, add(totalOffset, offset)), add(commitments, offset))   //append word to new array
-                }
-                totalOffset := add(totalOffset, 0x7F7)                                              //add total offset for next player
-                sstore(concatCommitments, result)
-            }         
-    }
-        }*/
 
     function isStringEmpty(string s) pure internal returns (bool) {
         return isBytesEmpty(bytes(s));

@@ -77,29 +77,36 @@ contract DistributedMPC is MultiPartyProtocol {
         isCoordinator
         isInStageTransformationState
     {
-        require(stage.length == 46);                                // 46 = length of IPFS hash
         uint stateIndex = uint(currentState) - uint(State.Stage1); // 0 for stage 1, ... 2 for stage 3
         require(isBytesEmpty(protocol.initialStages[stateIndex]));
         protocol.initialStages[stateIndex] = stage;
+        protocol.latestTransformation = stage;
         StagePrepared(uint(currentState));
     }
 
-    function publishStageResults(
-        bytes stageTransformed
-    )
+    function publishStageResults(bytes stageTransformed)
         public
         isInStageTransformationState
         isPlayer
         isNotEmptyBytes(stageTransformed)
         previousPlayerCommitted
     {
-        require(stageTransformed.length == 46);
         uint stateIndex = uint(currentState) - uint(State.Stage1);
         require(isBytesEmpty(protocol.stageTransformations[stateIndex].playerData[msg.sender]));
         protocol.stageTransformations[stateIndex].playerData[msg.sender] = stageTransformed;
+        protocol.latestTransformation = stageTransformed;
         StageResultPublished(msg.sender, stageTransformed);
         if(isLastPlayer()){
             nextStage();
         }
+    }
+
+    function getLatestTransformation() 
+        constant 
+        public 
+        isInStageTransformationState
+        isPlayer
+        returns (bytes) {
+            return protocol.latestTransformation;
     }
 }
