@@ -13,6 +13,8 @@ Cargo.lock
 **/vk
 **/pk
 **/r1cs
+mpc/stage*
+mpc/nizks
 
 **/build/
 
