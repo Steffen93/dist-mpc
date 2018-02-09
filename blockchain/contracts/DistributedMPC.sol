@@ -109,22 +109,35 @@ contract DistributedMPC is MultiPartyProtocol {
         return protocol.stageCommit.playerData[player].commitment;
     }
 
+    function getConstraintSystem()
+        constant
+        public
+        returns (bytes)
+    {
+        return protocol.r1cs;
+    }
+
     function getInitialStage()
         constant
         public
-        isInStageTransformationState
-        isPlayer
         returns (bytes) 
     {
         uint stateIndex = uint(currentState) - uint(State.Stage1);
         return protocol.initialStages[stateIndex];
     }
 
+    function getLastTransformation(uint stage)
+        constant
+        public
+        returns (bytes)
+    {
+        require(stage < protocol.stageTransformations.length);
+        return protocol.stageTransformations[stage].playerData[players[players.length-1]];
+    }
+
     function getLatestTransformation() 
         constant 
         public 
-        isInStageTransformationState
-        isPlayer
         returns (bytes) 
     {
         return protocol.latestTransformation;
