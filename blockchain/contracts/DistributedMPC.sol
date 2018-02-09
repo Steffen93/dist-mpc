@@ -3,9 +3,9 @@ pragma solidity ^0.4.11;
 import "./MultiPartyProtocol.sol";
 
 contract DistributedMPC is MultiPartyProtocol {
-    function DistributedMPC(string r1cs) 
+    function DistributedMPC(bytes r1cs) 
         public
-        isNotEmpty(r1cs) 
+        isNotEmptyBytes(r1cs) 
         MultiPartyProtocol(r1cs) 
     {
         join();
@@ -23,7 +23,7 @@ contract DistributedMPC is MultiPartyProtocol {
     function start() 
         public 
         isInState(State.Join) 
-        isCoordinator 
+        isSenderCoordinator 
         returns (bool)
     {
         return nextStage();
@@ -51,8 +51,8 @@ contract DistributedMPC is MultiPartyProtocol {
         isNotEmptyBytes(publicKey)
         isEmptyBytes(protocol.stageCommit.playerData[msg.sender].publicKey)
     {
-        require(keccak256(publicKey) == protocol.stageCommit.playerData[msg.sender].commitment);
         require(publicKey.length == 2069);
+        require(keccak256(publicKey) == protocol.stageCommit.playerData[msg.sender].commitment);
         protocol.stageCommit.playerData[msg.sender].publicKey = publicKey;
         if(allCommitmentsRevealed()){
             nextStage();
@@ -74,7 +74,7 @@ contract DistributedMPC is MultiPartyProtocol {
 
     function setInitialStage(bytes stage) 
         public
-        isCoordinator
+        isSenderCoordinator
         isInStageTransformationState
     {
         uint stateIndex = uint(currentState) - uint(State.Stage1); // 0 for stage 1, ... 2 for stage 3
@@ -101,12 +101,48 @@ contract DistributedMPC is MultiPartyProtocol {
         }
     }
 
+    function getCommitment(address player)
+        constant
+        public
+        returns (bytes32)
+    {
+        return protocol.stageCommit.playerData[player].commitment;
+    }
+
+    function getInitialStage()
+        constant
+        public
+        isInStageTransformationState
+        isPlayer
+        returns (bytes) 
+    {
+        uint stateIndex = uint(currentState) - uint(State.Stage1);
+        return protocol.initialStages[stateIndex];
+    }
+
     function getLatestTransformation() 
         constant 
         public 
         isInStageTransformationState
         isPlayer
-        returns (bytes) {
-            return protocol.latestTransformation;
+        returns (bytes) 
+    {
+        return protocol.latestTransformation;
+    }
+
+    function getNumberOfPlayers()
+        constant
+        public
+        returns (uint)
+    {
+        return players.length;
+    }
+
+    function isCoordinator()
+        constant
+        public
+        returns (bool) 
+    {
+        return msg.sender == players[0];
     }
 }

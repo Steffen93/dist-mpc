@@ -23,7 +23,7 @@ contract MultiPartyProtocol {
     }
     
     struct Protocol {
-        string r1cs;
+        bytes r1cs;
         bytes[] initialStages;         //before round robin, the initial stage is stored here, starting with stage 1
         StageCommit stageCommit;
         StageTransform[] stageTransformations;
@@ -37,7 +37,7 @@ contract MultiPartyProtocol {
     event StagePrepared(uint stage);  //called when the coordinator initialized a new stage (stage1, stage2, stage3)
     event StageResultPublished(address player, bytes result);
     
-    modifier isCoordinator(){
+    modifier isSenderCoordinator(){
         require(msg.sender == players[0]);
         _;
     }
@@ -124,7 +124,7 @@ contract MultiPartyProtocol {
     address[] public players;
     Protocol protocol;
     
-    function MultiPartyProtocol(string r1cs) public {
+    function MultiPartyProtocol(bytes r1cs) public {
         protocol.r1cs = r1cs;
         protocol.initialStages = new bytes[](3);
         protocol.stageCommit = StageCommit();
