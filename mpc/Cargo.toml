@@ -60,6 +60,8 @@ sha3 = "0.7.2"
 serde_json = "1.0.9"
 serde_derive = "1.0.27"
 serde = "1.0.27"
+json = "*"
+hex = "0.3.1"
 ipfs-api = { git = "https://github.com/rmnoff/rust-ipfs-api" }
 web3 = { git = "https://github.com/tomusdrw/rust-web3" }
 
