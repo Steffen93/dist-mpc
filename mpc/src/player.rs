@@ -11,6 +11,7 @@ extern crate ipfs_api;
 extern crate serde_json;
 extern crate ethabi;
 extern crate hex;
+extern crate spinner;
 
 #[macro_use]
 extern crate serde_derive; 
@@ -24,6 +25,8 @@ use protocol::{Transform, Verify};
 #[cfg(feature = "snark")]
 extern crate snark;
 use snark::*;
+
+use spinner::SpinnerBuilder;
 
 use rand::{SeedableRng, Rng};
 use bincode::SizeLimit::Infinite;
@@ -50,12 +53,41 @@ use std::time::Duration;
 use std::thread;
 use std::fmt::Write;
 use std::path::Path;
-use std::io::{Read, self};
+use std::io::{Write as FileWrite, Read, self};
 use std::fs::{File};
 
 pub const THREADS: usize = 8;
 pub const DIRECTORY_PREFIX: &'static str = "/home/compute/";
 pub const ASK_USER_TO_RECORD_HASHES: bool = true;
+
+pub static SPINNER: [&'static str; 26] = [
+    "▐|\\____________▌",
+    "▐_|\\___________▌",
+    "▐__|\\__________▌",
+    "▐___|\\_________▌",
+    "▐____|\\________▌",
+    "▐_____|\\_______▌",
+    "▐______|\\______▌",
+    "▐_______|\\_____▌",
+    "▐________|\\____▌",
+    "▐_________|\\___▌",
+    "▐__________|\\__▌",
+    "▐___________|\\_▌",
+    "▐____________|\\▌",
+    "▐____________/|▌",
+    "▐___________/|_▌",
+    "▐__________/|__▌",
+    "▐_________/|___▌",
+    "▐________/|____▌",
+    "▐_______/|_____▌",
+    "▐______/|______▌",
+    "▐_____/|_______▌",
+    "▐____/|________▌",
+    "▐___/|_________▌",
+    "▐__/|__________▌",
+    "▐_/|___________▌",
+    "▐/|____________▌"
+];
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
@@ -143,76 +175,81 @@ fn create_filter<'a>(web3: &Web3<&'a Http>, topic: &str) -> BaseFilter<&'a Http,
     create_filter.wait().expect("Filter should be registerable!")
 }
 
-fn await_next_stage(filter: &BaseFilter<&Http, Log>, poll_interval: &Duration) {
+fn await_filter<T: Transport, F: Fn(Vec<Log>) -> bool >(filter: &BaseFilter<&T, Log>, poll_interval: &Duration, msg: &str, callback: F){
+    let spinner = SpinnerBuilder::new(msg.into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     loop {
         let result = filter.poll().wait().expect("New Stage Filter should return result!").expect("Polling result should be valid!");
+        if callback(result) {
+            spinner.close();
+            return;
+        }
+        thread::sleep(*poll_interval);
+    }
+}
+
+fn await_next_stage<T: Transport>(filter: &BaseFilter<&T, Log>, poll_interval: &Duration) {
+    await_filter(filter, poll_interval, "Waiting for next stage to start...", |result| {
         for i in 0..result.len() {
             let data: &Vec<u8> = &result[i].data.0;
             println!("New Stage: {:?}", U256::from(data.as_slice()).low_u64());
-            return;
+            return true;
         }
-        thread::sleep(*poll_interval);
-    }
+        return false;
+    });
 }
 
-fn await_stage_prepared(filter: &BaseFilter<&Http, Log>, poll_interval: &Duration) {
-    loop {
-        let result = filter.poll().wait().expect("Stage Prepared Filter should return result!").expect("Polling result should be valid!");
+fn await_stage_prepared<T: Transport>(filter: &BaseFilter<&T, Log>, poll_interval: &Duration) {
+    await_filter(filter, poll_interval, "Waiting for next stage to be prepared...", |result| {
         for i in 0..result.len() {
             let data: &Vec<u8> = &result[i].data.0;
             println!("Stage {} prepared", U256::from(data.as_slice()).low_u64());
-            return;
+            return true;
         }
-        thread::sleep(*poll_interval);
-    }
+        return false;
+    });
 }
 
-fn await_stage_result_published(filter: &BaseFilter<&Http, Log>, poll_interval: &Duration, wanted: Option<Address>) {
+fn await_stage_result_published<T: Transport>(filter: &BaseFilter<&T, Log>, poll_interval: &Duration, wanted: Option<Address>) {
     if wanted.is_none() {
         println!("There is no player to wait for!");
         return
     }
-    println!("Waiting for {:?} to commit first.", wanted.unwrap());
-    loop {
-        let result = filter.poll().wait().expect("Stage Result Published Filter should return result!").expect("Polling result should be valid!");
+    await_filter(filter, poll_interval, format!("Waiting for {:?} to publish stage result...", wanted.unwrap()).as_str(), |result| {
         for i in 0..result.len() {
             let data: &[u8] = &result[i].data.0[0..32];
             let publisher: Address = Address::from(data);
             println!("Player published results: {:?}", publisher);
             if publisher == wanted.unwrap() {
-                return;
+                return true;
             }
         }
-        thread::sleep(*poll_interval);
-    }
+        return false;
+    });
 }
 
-fn await_player_joined(filter: &BaseFilter<&Http, Log>, poll_interval: &Duration, player: Address) {
-    loop {
-        let result = filter.poll().wait().expect("Player Joined Filter should return result!").expect("Polling result should be valid!");
+fn await_player_joined<T: Transport>(filter: &BaseFilter<&T, Log>, poll_interval: &Duration, player: Address) {
+    await_filter(filter, poll_interval, "Waiting for players to join...", |result| {
         for i in 0..result.len() {
             let data: &Vec<u8> = &result[i].data.0;
             let joined: Address = Address::from(data.as_slice());
             println!("Player joined: {:?}", joined);
             if player == joined {
-                return;
+                return true;
             }
         }
-        thread::sleep(*poll_interval);
-    }
+        return false;
+    });
 }
 
 fn upload_to_ipfs<T: Encodable>(obj: &T, name: &str, ipfs: &mut IPFS) -> IPFSAddResponse {
-    let mut file = File::create(name).unwrap();
+    let mut file = File::create(name).expect("Should work to create file.");
     encode_into(obj, &mut file, Infinite).unwrap();
     let result = ipfs.add(name);
-    println!("{:?}", String::from_utf8(result.clone()).unwrap());
     serde_json::from_slice(result.as_slice()).unwrap()
 }
 
 fn upload_file_to_ipfs(path: &str, ipfs: &mut IPFS) -> IPFSAddResponse {
     let result = ipfs.add(path);
-    println!("{:?}", String::from_utf8(result.clone()).unwrap());
     serde_json::from_slice(result.as_slice()).unwrap()
 }
 
@@ -234,12 +271,33 @@ fn call_contract<T, P>(contract: &Contract<&T>, method: &str, params: P, account
     contract.call(method, tokens.as_slice(), account, Options::with(|opt|{opt.gas = Some(U256::from(gas.low_u64()*3))})).wait().expect(format!("Error calling contract method {:?}", method).as_str());
 }
 
+fn download_r1cs<T>(contract: &Contract<&T>, account: Address, ipfs: &mut IPFS) -> CS where 
+    T: Transport
+{
+    let hash: Vec<u8> = query_contract_default(&contract, "getConstraintSystem", (), account);
+    println!("R1CS hash: {:?}", String::from_utf8(hash.clone()).unwrap());
+    println!("Downloading r1cs from ipfs...");
+    let mut file = File::create("r1cs").unwrap();
+    file.write_all(&ipfs.cat(String::from_utf8(hash).unwrap().as_str())).unwrap();
+    // TODO: replace with cs from file
+    CS::dummy()
+}
 fn download_stage<S, T>(contract: &Contract<&T>, account: Address, ipfs: &mut IPFS) -> S where 
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
     let stage_hash: Vec<u8> = query_contract_default(&contract, "getLatestTransformation", (), account);
     println!("Latest transformation hash: {:?}", String::from_utf8(stage_hash.clone()).unwrap());
+    println!("Downloading stage from ipfs...");
+    decode(&ipfs.cat(String::from_utf8(stage_hash).unwrap().as_str())).expect("Should match stage object!")
+}
+
+fn download_final_stage<S, T>(contract: &Contract<&T>, stage: u64, account: Address, ipfs: &mut IPFS) -> S where 
+    S: Transform + Verify + Clone + Encodable + Decodable,
+    T: Transport
+{
+    let stage_hash: Vec<u8> = query_contract_default(&contract, "getLastTransformation", stage, account);
+    println!("Final transformation hash of stage {:?}: {:?}", stage,  String::from_utf8(stage_hash.clone()).unwrap());
     println!("Downloading stage from ipfs...");
     decode(&ipfs.cat(String::from_utf8(stage_hash).unwrap().as_str())).expect("Should match stage object!")
 }
@@ -258,11 +316,14 @@ fn transform_and_upload<S, T>(stage: &mut S, stage_init: &mut S, privkey: &Priva
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
-    println!("Transforming stage...");
+    let spinner = SpinnerBuilder::new("Transforming stage...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     stage.transform(privkey);
     assert!(stage.is_well_formed(stage_init));
+    spinner.message("Uploading transformation to ipfs...".into());
     let stage_transformed_ipfs = upload_to_ipfs(stage, file_name, ipfs);
+    spinner.update("Publishing results on Ethereum...".into());
     call_contract(contract, "publishStageResults", stage_transformed_ipfs.hash.into_bytes(), account);
+    spinner.close();
 }
 
 fn upload_and_init<S, T>(stage: &mut S, contract: &Contract<&T>, account: Address, file_name: &str, ipfs: &mut IPFS) where
@@ -275,6 +336,7 @@ fn upload_and_init<S, T>(stage: &mut S, contract: &Contract<&T>, account: Addres
 }
 
 fn deploy_contract<'a, T: Transport, P: AsRef<Path>>(web3: &Web3<&'a T>, path: P, account: Address, ipfs: &mut IPFS) -> Contract<&'a T>{
+    let spinner = SpinnerBuilder::new("Deploying contract...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     let contract_build: &mut String = &mut String::new();
     File::open(path).expect("Error opening contract json file.").read_to_string(contract_build).expect("Should be readable.");
     let contract_build_json = json::parse(contract_build.as_str()).expect("Error parsing json!");
@@ -284,9 +346,11 @@ fn deploy_contract<'a, T: Transport, P: AsRef<Path>>(web3: &Web3<&'a T>, path: P
     let bytecode_hex: Vec<u8> = hex::decode(&bytecode[3..len]).unwrap();
     let cs_ipfs = upload_file_to_ipfs("r1cs", ipfs);
     
-    Contract::deploy(web3.eth(), &abi.dump().into_bytes()).expect("Abi should be well-formed!")
+    let contract = Contract::deploy(web3.eth(), &abi.dump().into_bytes()).expect("Abi should be well-formed!")
     .options(Options::with(|opt|{opt.gas = Some(U256::from(3000000))}))
-    .execute(bytecode_hex, cs_ipfs.hash.into_bytes(), account).expect("execute failed!").wait().expect("Error after wait!")
+    .execute(bytecode_hex, cs_ipfs.hash.into_bytes(), account).expect("execute failed!").wait().expect("Error after wait!");
+    spinner.close();
+    contract
 }
 
 fn prompt(s: &str) -> String {
@@ -310,7 +374,7 @@ fn is_coordinator<T: Transport>(contract: &Contract<&T>, account: Address) -> bo
 fn get_players<T: Transport>(contract: &Contract<&T>, account: Address) -> Vec<Address> {
     let mut players: Vec<Address> = vec![];
     let number_of_players: u64 = query_contract_default(contract, "getNumberOfPlayers", (), account);
-    for i in 0..number_of_players {
+    for i in 0..number_of_players { 
         let player: Address = query_contract_default(contract, "players", i, account);
         players.push(player);
     }
@@ -366,6 +430,7 @@ fn main() {
         default_account = accounts[account_index];
     }
     println!("Account: {:?}", default_account);
+    let mut cs = CS::dummy();
     if args.len() > 2 {
         //get contract file(s)
         let contract_address: Address = args[2].parse().expect("Error reading the contract address from the command line!");
@@ -379,19 +444,13 @@ fn main() {
         call_contract(&contract, "join", (), default_account);
         await_player_joined(&player_joined_filter, &duration, default_account);
     } else {
+        println!("You are the coordinator. Reading r1cs.");
+        // FIXME cs = CS::from_file();
+        cs = CS::dummy();
         contract = deploy_contract(&web3, "../blockchain/build/contracts/DistributedMPC.json", default_account, &mut ipfs);
     }
     println!("Contract address: {:?}", contract.address());
 
-    let cs;
-    if is_coordinator(&contract, default_account){
-        println!("You are the coordinator. Reading r1cs.");
-        // FIXME cs = CS::from_file();
-        cs = CS::dummy();
-    } else {
-        println!("You are not the coordinator.");
-        cs = CS::dummy();
-    }
 
     // Start protocol
     prompt("Press [ENTER] when you're ready to begin the ceremony.");
@@ -435,14 +494,13 @@ fn main() {
                 println!("All players committed. Proceeding to next round.");
             },
             2 => {
-                println!("Pubkey hex: {:?}", get_hex_string(&pubkey_encoded.clone()));
+                //println!("Pubkey hex: {:?}", get_hex_string(&pubkey_encoded.clone()));
                 call_contract(&contract, "revealCommitment", (pubkey_encoded.clone()), default_account);
                 println!("Public Key revealed! Waiting for other players to reveal...");
                 await_next_stage(&next_stage_filter, &duration);
                 println!("All players revealed their commitments. Proceeding to next round.");
             },
             3 => {
-                // TODO: fetch all commitments
                 let mut all_commitments = fetch_all_commitments(&contract, default_account, players.clone());
                 let hash_of_all_commitments = Digest512::from(&all_commitments).unwrap();
                 println!("Creating nizks...");
@@ -516,7 +574,19 @@ fn main() {
                 await_next_stage(&next_stage_filter, &duration);
             },
             7 => {
-                println!("Protocol finished!");
+                let spinner = SpinnerBuilder::new("Protocol finished! Downloading final stages...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
+                let cs: CS = download_r1cs(&contract, default_account, &mut ipfs);
+                spinner.message("R1CS complete.".into());
+                stage1 = download_final_stage(&contract, 0, default_account, &mut ipfs);
+                spinner.message("Stage1 complete.".into());
+                stage2 = download_final_stage(&contract, 1, default_account, &mut ipfs);
+                spinner.message("Stage2 complete.".into());
+                stage3 = download_final_stage(&contract, 2, default_account, &mut ipfs);
+                spinner.message("Stage3 complete.".into());
+                // Download r1cs, stage1, stage2, stage3 from ipfs
+                let kp = keypair(&cs, &stage1, &stage2, &stage3);
+                kp.write_to_disk();
+                spinner.close();
                 stop = true;
             }
             _ => {
