@@ -1,13 +1,18 @@
+extern crate spinner;
+
 use web3::api::BaseFilter;
 use web3::futures::Future;
-use web3::types::{Filter, FilterBuilder, Log, H256};
+use web3::types::{Address, Filter, FilterBuilder, Log, H256};
 use web3::{Transport, Web3};
 
 use sha3::{Digest, Keccak256};
 
+use spinner::SpinnerBuilder;
+
 use std::fmt::{Write};
 use std::str::FromStr;
 use std::time::Duration;
+use std::thread;
 
 #[derive(Clone, Copy)]
 pub struct EventFilterBuilder<'a, T: 'a + Transport>{
@@ -21,7 +26,7 @@ impl<'a, T: 'a + Transport> EventFilterBuilder<'a, T> {
         }
     }
 
-    pub fn create_filter<F: Fn(Vec<Log>) -> bool>(self, topic: &str, cb: F) -> EventFilter<'a, T, F> {
+    pub fn create_filter<F: Fn(Vec<Log>, Option<Address>) -> bool>(&self, topic: &str, msg: String, cb: F, extra_data: Option<Address>) -> EventFilter<'a, T, F> {
         let mut filter_builder: FilterBuilder = FilterBuilder::default();
         let topic_hash = Keccak256::digest(topic.as_bytes());
         filter_builder = filter_builder.topics(Some(vec![H256::from_str(self.clone().get_hex_string(&topic_hash.as_slice().to_owned()).as_str()).unwrap()]), None, None, None);
@@ -30,7 +35,9 @@ impl<'a, T: 'a + Transport> EventFilterBuilder<'a, T> {
         let event_filter = create_filter.wait().expect("Filter should be registerable!");
         EventFilter { 
             filter: event_filter,
-            callback: cb
+            wait_message: msg,
+            callback: cb,
+            parameter: extra_data
         }
     }
 
@@ -43,13 +50,27 @@ impl<'a, T: 'a + Transport> EventFilterBuilder<'a, T> {
     }
 }
 
-pub struct EventFilter<'a, T: 'a + Transport, F: Fn(Vec<Log>)->bool> {
+pub struct EventFilter<'a, T: 'a + Transport, F: Fn(Vec<Log>, Option<Address>) -> bool> {
     filter: BaseFilter<&'a T, Log>,
-    callback: F
+    wait_message: String,
+    callback: F,
+    parameter: Option<Address>
 }
 
-impl<'a, T: 'a + Transport, F: Fn(Vec<Log>)-> bool > EventFilter<'a, T, F> {
-    pub fn await(self, duration: &Duration){
+impl<'a, T, F> EventFilter<'a, T, F> where 
+    T: 'a + Transport,
+    F: Fn(Vec<Log>, Option<Address>) -> bool
+{
+    pub fn await(&mut self, duration: &Duration){
+        let spinner = SpinnerBuilder::new(String::from(&*self.wait_message)).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
+        loop {
+            let result = self.filter.poll().wait().expect("New Stage Filter should return result!").expect("Polling result should be valid!");
+            if (self.callback)(result, self.parameter) {
+                spinner.close();
+                return;
+            }
+            thread::sleep(*duration);
+        }
 
     }
 }
