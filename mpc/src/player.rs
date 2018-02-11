@@ -22,6 +22,9 @@ mod protocol;
 use self::protocol::*;
 use protocol::{Transform, Verify};
 
+mod blockchain;
+use self::blockchain::*;
+
 #[cfg(feature = "snark")]
 extern crate snark;
 use snark::*;
@@ -31,7 +34,6 @@ use spinner::SpinnerBuilder;
 use rand::{SeedableRng, Rng};
 use bincode::SizeLimit::Infinite;
 use bincode::rustc_serialize::{encode_into, encode, decode};
-use sha3::{Digest, Keccak256};
 use rustc_serialize::{Encodable, Decodable};
 
 use serde_json::value::Value;
@@ -39,7 +41,7 @@ use serde_json::value::Value;
 use web3::futures::Future;
 use web3::contract::*;
 use web3::contract::tokens::{Tokenize, Detokenize};
-use web3::types::{Address, Filter, FilterBuilder, Log, U256, H256, BlockNumber};
+use web3::types::{Address, Log, U256, BlockNumber};
 use web3::{Transport};
 use web3::transports::Http;
 use web3::api::BaseFilter;
@@ -47,7 +49,6 @@ use web3::Web3;
 
 use ipfs_api::IPFS;
 
-use std::str::FromStr;
 use std::env;
 use std::time::Duration;
 use std::thread;
@@ -59,35 +60,6 @@ use std::fs::{File};
 pub const THREADS: usize = 8;
 pub const DIRECTORY_PREFIX: &'static str = "/home/compute/";
 pub const ASK_USER_TO_RECORD_HASHES: bool = true;
-
-pub static SPINNER: [&'static str; 26] = [
-    "▐|\\____________▌",
-    "▐_|\\___________▌",
-    "▐__|\\__________▌",
-    "▐___|\\_________▌",
-    "▐____|\\________▌",
-    "▐_____|\\_______▌",
-    "▐______|\\______▌",
-    "▐_______|\\_____▌",
-    "▐________|\\____▌",
-    "▐_________|\\___▌",
-    "▐__________|\\__▌",
-    "▐___________|\\_▌",
-    "▐____________|\\▌",
-    "▐____________/|▌",
-    "▐___________/|_▌",
-    "▐__________/|__▌",
-    "▐_________/|___▌",
-    "▐________/|____▌",
-    "▐_______/|_____▌",
-    "▐______/|______▌",
-    "▐_____/|_______▌",
-    "▐____/|________▌",
-    "▐___/|_________▌",
-    "▐__/|__________▌",
-    "▐_/|___________▌",
-    "▐/|____________▌"
-];
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
@@ -166,15 +138,6 @@ fn to_bytes_fixed(vec: &Vec<u8>) -> [u8; 32] {
     arr
 }
 
-fn create_filter<'a>(web3: &Web3<&'a Http>, topic: &str) -> BaseFilter<&'a Http, Log> {
-    let mut filter_builder: FilterBuilder = FilterBuilder::default();
-    let topic_hash = Keccak256::digest(topic.as_bytes());
-    filter_builder = filter_builder.topics(Some(vec![H256::from_str(get_hex_string(&topic_hash.as_slice().to_owned()).as_str()).unwrap()]), None, None, None);
-    let filter: Filter = filter_builder.build();
-    let create_filter = web3.eth_filter().create_logs_filter(filter);
-    create_filter.wait().expect("Filter should be registerable!")
-}
-
 fn await_filter<T: Transport, F: Fn(Vec<Log>) -> bool >(filter: &BaseFilter<&T, Log>, poll_interval: &Duration, msg: &str, callback: F){
     let spinner = SpinnerBuilder::new(msg.into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     loop {
@@ -185,6 +148,15 @@ fn await_filter<T: Transport, F: Fn(Vec<Log>) -> bool >(filter: &BaseFilter<&T, 
         }
         thread::sleep(*poll_interval);
     }
+}
+
+fn next_stage_cb(result: Vec<Log>) -> bool {
+    for i in 0..result.len() {
+        let data: &Vec<u8> = &result[i].data.0;
+        println!("New Stage: {:?}", U256::from(data.as_slice()).low_u64());
+        return true;
+    }
+    return false;
 }
 
 fn await_next_stage<T: Transport>(filter: &BaseFilter<&T, Log>, poll_interval: &Duration) {
@@ -413,7 +385,9 @@ fn main() {
     ipfs.host("http://localhost", 5001);
 
     // Create filters:
-    let next_stage_filter = create_filter(&web3, "NextStage(uint256)");
+    let filter_builder = EventFilterBuilder::new(&web3); 
+    let next_stage_filter = filter_builder.create_filter("NextStage(uint256)", next_stage_cb);
+    //TODO: rewrite this
     let stage_prepared_filter = create_filter(&web3, "StagePrepared(uint256)");
     let player_joined_filter = create_filter(&web3, "PlayerJoined(address)");
     let await_stage_result_published_filter = create_filter(&web3, "StageResultPublished(address,bytes)");
@@ -482,7 +456,7 @@ fn main() {
                 } else {
                     println!("You are not the coordinator. The protocol will start as the coordinator decides.");
                 }
-                await_next_stage(&next_stage_filter, &duration);
+                next_stage_filter.await(&duration);
                 println!("Protocol Started!");
                 players = get_players(&contract, default_account);
                 previous_player = get_previous_player(players.clone(), default_account);
