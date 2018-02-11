@@ -40,8 +40,7 @@ use serde_json::value::Value;
 
 use web3::futures::Future;
 use web3::contract::*;
-use web3::contract::tokens::{Tokenize, Detokenize};
-use web3::types::{Address, Log, U256, BlockNumber};
+use web3::types::{Address, Log, U256};
 use web3::{Transport};
 use web3::transports::Http;
 use web3::Web3;
@@ -115,8 +114,8 @@ fn get_entropy() -> [u32; 8] {
     seed
 }
 
-fn get_current_state<T: Transport>(contract: &Contract<&T>, account: Address) -> u64 {
-    let current_state: U256 = query_contract_default(contract, "currentState", (), account);
+fn get_current_state<T: Transport>(contract: &ContractWrapper<&T>) -> u64 {
+    let current_state: U256 = contract.query("currentState", ());
     current_state.low_u64()
 }
 
@@ -191,31 +190,10 @@ fn upload_file_to_ipfs(path: &str, ipfs: &mut IPFS) -> IPFSAddResponse {
     serde_json::from_slice(result.as_slice()).unwrap()
 }
 
-fn query_contract_default<T,P,R>(contract: &Contract<&T>, method: &str, params: P, account: Address) -> R where 
-    P: Tokenize,
-    R: Detokenize,
+fn download_r1cs<T>(contract: &ContractWrapper<&T>, ipfs: &mut IPFS) -> CS where 
     T: Transport
 {
-    contract.query(method, params, account, Options::default(), BlockNumber::Latest).wait().expect(format!("Error querying contract method {:?}", method).as_str())
-}
-
-fn call_contract<T, P>(contract: &Contract<&T>, method: &str, params: P, account: Address) where 
-    T: Transport,
-    P: Tokenize
-{
-    let tokens = params.into_tokens();
-    let gas = contract.estimate_gas(method, tokens.clone().as_slice(), account, Options::default()).wait().expect("Gas estimation should not fail!");
-    println!("Gas estimation for {:?}: {:?}", method, gas.low_u64());
-    unsafe {
-        TOTAL_GAS += gas.low_u64();
-    }
-    contract.call(method, tokens.as_slice(), account, Options::with(|opt|{opt.gas = Some(U256::from(gas.low_u64()*3))})).wait().expect(format!("Error calling contract method {:?}", method).as_str());
-}
-
-fn download_r1cs<T>(contract: &Contract<&T>, account: Address, ipfs: &mut IPFS) -> CS where 
-    T: Transport
-{
-    let hash: Vec<u8> = query_contract_default(&contract, "getConstraintSystem", (), account);
+    let hash: Vec<u8> = contract.query("getConstraintSystem", ());
     println!("R1CS hash: {:?}", String::from_utf8(hash.clone()).unwrap());
     println!("Downloading r1cs from ipfs...");
     let mut file = File::create("r1cs").unwrap();
@@ -223,37 +201,37 @@ fn download_r1cs<T>(contract: &Contract<&T>, account: Address, ipfs: &mut IPFS) 
     // TODO: replace with cs from file
     CS::dummy()
 }
-fn download_stage<S, T>(contract: &Contract<&T>, account: Address, ipfs: &mut IPFS) -> S where 
+fn download_stage<S, T>(contract: &ContractWrapper<&T>, ipfs: &mut IPFS) -> S where 
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
-    let stage_hash: Vec<u8> = query_contract_default(&contract, "getLatestTransformation", (), account);
+    let stage_hash: Vec<u8> = contract.query("getLatestTransformation", ());
     println!("Latest transformation hash: {:?}", String::from_utf8(stage_hash.clone()).unwrap());
     println!("Downloading stage from ipfs...");
     decode(&ipfs.cat(String::from_utf8(stage_hash).unwrap().as_str())).expect("Should match stage object!")
 }
 
-fn download_final_stage<S, T>(contract: &Contract<&T>, stage: u64, account: Address, ipfs: &mut IPFS) -> S where 
+fn download_final_stage<S, T>(contract: &ContractWrapper<&T>, stage: u64, ipfs: &mut IPFS) -> S where 
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
-    let stage_hash: Vec<u8> = query_contract_default(&contract, "getLastTransformation", stage, account);
+    let stage_hash: Vec<u8> = contract.query("getLastTransformation", stage);
     println!("Final transformation hash of stage {:?}: {:?}", stage,  String::from_utf8(stage_hash.clone()).unwrap());
     println!("Downloading stage from ipfs...");
     decode(&ipfs.cat(String::from_utf8(stage_hash).unwrap().as_str())).expect("Should match stage object!")
 }
 
-fn download_initial_stage<S, T>(contract: &Contract<&T>, account: Address, ipfs: &mut IPFS) -> S where 
+fn download_initial_stage<S, T>(contract: &ContractWrapper<&T>, ipfs: &mut IPFS) -> S where 
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
-    let stage_hash: Vec<u8> = query_contract_default(&contract, "getInitialStage", (), account);
+    let stage_hash: Vec<u8> = contract.query("getInitialStage", ());
     println!("Initial stage hash: {:?}", String::from_utf8(stage_hash.clone()).unwrap());
     println!("Downloading stage from ipfs...");
     decode(&ipfs.cat(String::from_utf8(stage_hash).unwrap().as_str())).expect("Should match stage object!")
 }
 
-fn transform_and_upload<S, T>(stage: &mut S, stage_init: &mut S, privkey: &PrivateKey, contract: &Contract<&T>, account: Address, file_name: &str, ipfs: &mut IPFS) where
+fn transform_and_upload<S, T>(stage: &mut S, stage_init: &mut S, privkey: &PrivateKey, contract: &ContractWrapper<&T>, file_name: &str, ipfs: &mut IPFS) where
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
@@ -263,17 +241,17 @@ fn transform_and_upload<S, T>(stage: &mut S, stage_init: &mut S, privkey: &Priva
     spinner.message("Uploading transformation to ipfs...".into());
     let stage_transformed_ipfs = upload_to_ipfs(stage, file_name, ipfs);
     spinner.update("Publishing results on Ethereum...".into());
-    call_contract(contract, "publishStageResults", stage_transformed_ipfs.hash.into_bytes(), account);
+    contract.call("publishStageResults", stage_transformed_ipfs.hash.into_bytes());
     spinner.close();
 }
 
-fn upload_and_init<S, T>(stage: &mut S, contract: &Contract<&T>, account: Address, file_name: &str, ipfs: &mut IPFS) where
+fn upload_and_init<S, T>(stage: &mut S, contract: &ContractWrapper<&T>, file_name: &str, ipfs: &mut IPFS) where
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
     let stage_ipfs = upload_to_ipfs(stage, file_name, ipfs);
     println!("Stage size: {} B", stage_ipfs.size);
-    call_contract(contract, "setInitialStage", stage_ipfs.hash.into_bytes(), account);
+    contract.call("setInitialStage", stage_ipfs.hash.into_bytes());
 }
 
 fn deploy_contract<'a, T: Transport, P: AsRef<Path>>(web3: &Web3<&'a T>, path: P, account: Address, ipfs: &mut IPFS) -> Contract<&'a T>{
@@ -284,7 +262,7 @@ fn deploy_contract<'a, T: Transport, P: AsRef<Path>>(web3: &Web3<&'a T>, path: P
     let abi = &contract_build_json["abi"];
     let bytecode = &contract_build_json["bytecode"].dump();
     let len = bytecode.len()-1;
-    let bytecode_hex: Vec<u8> = hex::decode(&bytecode[3..len]).unwrap();
+    let bytecode_hex: Vec<u8> = hex::decode(&bytecode[3..len]).unwrap();       //skip leading and trailing special characters like "0x..."
     let cs_ipfs = upload_file_to_ipfs("r1cs", ipfs);
     
     let contract = Contract::deploy(web3.eth(), &abi.dump().into_bytes()).expect("Abi should be well-formed!")
@@ -308,15 +286,15 @@ fn prompt(s: &str) -> String {
     }
 }
 
-fn is_coordinator<T: Transport>(contract: &Contract<&T>, account: Address) -> bool {
-    query_contract_default(contract, "isCoordinator", (), account)
+fn is_coordinator<T: Transport>(contract: &ContractWrapper<&T>) -> bool {
+    contract.query("isCoordinator", ())
 }
 
-fn get_players<T: Transport>(contract: &Contract<&T>, account: Address) -> Vec<Address> {
+fn get_players<T: Transport>(contract: &ContractWrapper<&T>) -> Vec<Address> {
     let mut players: Vec<Address> = vec![];
-    let number_of_players: u64 = query_contract_default(contract, "getNumberOfPlayers", (), account);
+    let number_of_players: u64 = contract.query("getNumberOfPlayers", ());
     for i in 0..number_of_players { 
-        let player: Address = query_contract_default(contract, "players", i, account);
+        let player: Address = contract.query("players", i);
         players.push(player);
     }
     players
@@ -334,10 +312,10 @@ fn get_previous_player(players: Vec<Address>, player: Address) -> Option<Address
     None
 }
 
-fn fetch_all_commitments<T: Transport>(contract: &Contract<&T>, account: Address, players: Vec<Address>) -> Vec<Vec<u8>> {
+fn fetch_all_commitments<T: Transport>(contract: &ContractWrapper<&T>, players: Vec<Address>) -> Vec<Vec<u8>> {
     let mut all_commitments : Vec<Vec<u8>> = vec![];
     for player in players {
-        let commitment: Vec<u8> = query_contract_default(contract, "getCommitment", player, account);
+        let commitment: Vec<u8> = contract.query("getCommitment", player);
         all_commitments.push(commitment);
     }
     all_commitments
@@ -356,10 +334,10 @@ fn main() {
 
     // Create filters:
     let filter_builder = EventFilterBuilder::new(&web3); 
-    let duration = Duration::new(1, 0);
+    let poll_interval = Duration::new(1, 0);
 
     let args: Vec<_> = env::args().collect();
-    let contract: Contract<&Http>;
+    let web3_contract: Contract<&Http>;
     let accounts: Vec<Address> = web3.eth().accounts().wait().unwrap();
     assert!(accounts.len() > 0);
     let mut default_account: Address = accounts[0];
@@ -372,26 +350,29 @@ fn main() {
     let mut player_joined_filter = filter_builder.create_filter("PlayerJoined(address)", "Waiting for player joining...".into(), player_joined_cb, Some(default_account));
     
     let mut cs = CS::dummy();
+    let contract;
     if args.len() > 2 {
         let contract_address: Address = args[2].parse().expect("Error reading the contract address from the command line!");
 
         //TODO: read given address as from_address from command line!
-        contract = Contract::from_json(
+        web3_contract = Contract::from_json(
             web3.eth(),
             contract_address,
             include_bytes!("../abi.json")
         ).expect("Error loading contract from json!");
-        call_contract(&contract, "join", (), default_account);
-        player_joined_filter.await(&duration);
+        contract = ContractWrapper::new(&web3_contract, default_account);
+        contract.call("join", ());
+        player_joined_filter.await(&poll_interval);
     } else {
         println!("You are the coordinator. Reading r1cs.");
         // FIXME cs = CS::from_file();
         cs = CS::dummy();
-        contract = deploy_contract(&web3, "../blockchain/build/contracts/DistributedMPC.json", default_account, &mut ipfs);
+        web3_contract = deploy_contract(&web3, "../blockchain/build/contracts/DistributedMPC.json", default_account, &mut ipfs);
+        contract = ContractWrapper::new(&web3_contract, default_account);
     }
-    println!("Contract address: {:?}", contract.address());
+    println!("Contract address: {:?}", web3_contract.address());
 
-    let mut players: Vec<Address> = get_players(&contract, default_account);
+    let mut players: Vec<Address> = get_players(&contract);
     let mut previous_player: Option<Address> = get_previous_player(players.clone(), default_account);
     let mut next_stage_filter = filter_builder.create_filter("NextStage(uint256)", "Waiting for next stage to start...".into(), next_stage_cb, None);
     let mut stage_prepared_filter = filter_builder.create_filter("StagePrepared(uint256)","Waiting for next stage to be prepared by coordinator...".into(), stage_prepared_cb, None);
@@ -417,34 +398,34 @@ fn main() {
     let mut stage2: Stage2Contents;
     let mut stage3: Stage3Contents;
     while !stop {
-        match get_current_state(&contract, default_account) {
+        match get_current_state(&contract) {
             0 => {
-                if is_coordinator(&contract, default_account){
+                if is_coordinator(&contract){
                     prompt("You are the coordinator. Press [ENTER] to start the protocol.");
-                    call_contract(&contract, "start", (), default_account);
+                    contract.call("start", ());
                 } else {
                     println!("You are not the coordinator. The protocol will start as the coordinator decides.");
                 }
-                next_stage_filter.await(&duration);
+                next_stage_filter.await(&poll_interval);
                 println!("Protocol Started!");
-                players = get_players(&contract, default_account);
+                players = get_players(&contract);
                 previous_player = get_previous_player(players.clone(), default_account);
             },
-            1 => {
-                call_contract(&contract, "commit", to_bytes_fixed(&commitment.clone()), default_account);
+            1 => { 
+                contract.call("commit", to_bytes_fixed(&commitment.clone()));
                 println!("Committed! Waiting for other players to commit...");
-                next_stage_filter.await(&duration);
+                next_stage_filter.await(&poll_interval);
                 println!("All players committed. Proceeding to next round.");
             },
             2 => {
                 //println!("Pubkey hex: {:?}", get_hex_string(&pubkey_encoded.clone()));
-                call_contract(&contract, "revealCommitment", (pubkey_encoded.clone()), default_account);
+                contract.call("revealCommitment", pubkey_encoded.clone());
                 println!("Public Key revealed! Waiting for other players to reveal...");
-                next_stage_filter.await(&duration);
+                next_stage_filter.await(&poll_interval);
                 println!("All players revealed their commitments. Proceeding to next round.");
             },
             3 => {
-                let mut all_commitments = fetch_all_commitments(&contract, default_account, players.clone());
+                let mut all_commitments = fetch_all_commitments(&contract, players.clone());
                 let hash_of_all_commitments = Digest512::from(&all_commitments).unwrap();
                 println!("Creating nizks...");
                 let nizks = pubkey.nizks(&mut chacha_rng, &privkey, &hash_of_all_commitments);
@@ -453,84 +434,84 @@ fn main() {
                 //TODO: check all nizks for validity!
                 let nizks_encoded = encode(&nizks, Infinite).unwrap();
                 println!("size of nizks: {} B", nizks_encoded.len());
-                call_contract(&contract, "publishNizks", nizks_encoded, default_account);
-                next_stage_filter.await(&duration);
+                contract.call("publishNizks", nizks_encoded);
+                next_stage_filter.await(&poll_interval);
             },
             4 => {
-                if is_coordinator(&contract, default_account) {
+                if is_coordinator(&contract) {
                     println!("Creating stage...");
                     stage1 = Stage1Contents::new(&cs);
-                    upload_and_init(&mut stage1, &contract, default_account, "stage1", &mut ipfs);
+                    upload_and_init(&mut stage1, &contract, "stage1", &mut ipfs);
                     drop(stage1);
                 }
-                stage_prepared_filter.await(&duration);
+                stage_prepared_filter.await(&poll_interval);
                 if previous_player.is_some() {
-                    stage_result_published_filter.await(&duration);                    
+                    stage_result_published_filter.await(&poll_interval);                    
                 }
-                let mut stage1_init: Stage1Contents = download_initial_stage(&contract, default_account, &mut ipfs);        //needed for transformation verification
+                let mut stage1_init: Stage1Contents = download_initial_stage(&contract, &mut ipfs);        //needed for transformation verification
                 if previous_player.is_none(){
                     stage1 = stage1_init.clone();
                 } else {
-                    stage1 = download_stage(&contract, default_account, &mut ipfs);
+                    stage1 = download_stage(&contract, &mut ipfs);
                 }
-                transform_and_upload(&mut stage1, &mut stage1_init, &privkey, &contract, default_account, "stage1_transformed", &mut ipfs);
+                transform_and_upload(&mut stage1, &mut stage1_init, &privkey, &contract, "stage1_transformed", &mut ipfs);
                 drop(stage1);
-                next_stage_filter.await(&duration);
+                next_stage_filter.await(&poll_interval);
             },
             5 => {
-                if is_coordinator(&contract, default_account) {
-                    stage1 = download_stage(&contract, default_account, &mut ipfs);
+                if is_coordinator(&contract) {
+                    stage1 = download_stage(&contract, &mut ipfs);
                     stage2 = Stage2Contents::new(&cs, &stage1);
                     drop(stage1);
-                    upload_and_init(&mut stage2, &contract, default_account, "stage2", &mut ipfs);
+                    upload_and_init(&mut stage2, &contract, "stage2", &mut ipfs);
                     drop(stage2);
                 }
-                stage_prepared_filter.await(&duration);
+                stage_prepared_filter.await(&poll_interval);
                 if previous_player.is_some() {
-                    stage_result_published_filter.await(&duration);                    
+                    stage_result_published_filter.await(&poll_interval);                    
                 }
-                let mut stage2_init: Stage2Contents = download_initial_stage(&contract, default_account, &mut ipfs);        //needed for transformation verification
+                let mut stage2_init: Stage2Contents = download_initial_stage(&contract, &mut ipfs);        //needed for transformation verification
                 if previous_player.is_none(){
                     stage2 = stage2_init.clone();
                 } else {
-                    stage2 = download_stage(&contract, default_account, &mut ipfs);
+                    stage2 = download_stage(&contract, &mut ipfs);
                 }
-                transform_and_upload(&mut stage2, &mut stage2_init, &privkey, &contract, default_account, "stage2_transformed", &mut ipfs);
+                transform_and_upload(&mut stage2, &mut stage2_init, &privkey, &contract, "stage2_transformed", &mut ipfs);
                 drop(stage2);
-                next_stage_filter.await(&duration);
+                next_stage_filter.await(&poll_interval);
             },
             6 => {
-                if is_coordinator(&contract, default_account) {
+                if is_coordinator(&contract) {
                     println!("Creating stage...");
-                    stage2 = download_stage(&contract, default_account, &mut ipfs);
+                    stage2 = download_stage(&contract, &mut ipfs);
                     stage3 = Stage3Contents::new(&cs, &stage2);
-                    drop(stage2);
-                    upload_and_init(&mut stage3, &contract, default_account, "stage3", &mut ipfs);
+                    drop(stage2); 
+                    upload_and_init(&mut stage3, &contract, "stage3", &mut ipfs);
                     drop(stage3);
                 }
-                stage_prepared_filter.await(&duration);
+                stage_prepared_filter.await(&poll_interval);
                 if previous_player.is_some() {
-                    stage_result_published_filter.await(&duration);                    
+                    stage_result_published_filter.await(&poll_interval);                    
                 }
-                let mut stage3_init: Stage3Contents = download_initial_stage(&contract, default_account, &mut ipfs);        //needed for transformation verification
+                let mut stage3_init: Stage3Contents = download_initial_stage(&contract, &mut ipfs);        //needed for transformation verification
                 if previous_player.is_none(){
                     stage3 = stage3_init.clone();
                 } else {
-                    stage3 = download_stage(&contract, default_account, &mut ipfs);
+                    stage3 = download_stage(&contract, &mut ipfs);
                 }
-                transform_and_upload(&mut stage3, &mut stage3_init, &privkey, &contract, default_account, "stage3_transformed", &mut ipfs);
+                transform_and_upload(&mut stage3, &mut stage3_init, &privkey, &contract, "stage3_transformed", &mut ipfs);
                 drop(stage3);
-                next_stage_filter.await(&duration);
+                next_stage_filter.await(&poll_interval);
             },
             7 => {
                 let spinner = SpinnerBuilder::new("Protocol finished! Downloading final stages...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
-                let cs: CS = download_r1cs(&contract, default_account, &mut ipfs);
+                let cs: CS = download_r1cs(&contract, &mut ipfs);
                 spinner.message("R1CS complete.".into());
-                stage1 = download_final_stage(&contract, 0, default_account, &mut ipfs);
+                stage1 = download_final_stage(&contract, 0, &mut ipfs);
                 spinner.message("Stage1 complete.".into());
-                stage2 = download_final_stage(&contract, 1, default_account, &mut ipfs);
+                stage2 = download_final_stage(&contract, 1, &mut ipfs);
                 spinner.message("Stage2 complete.".into());
-                stage3 = download_final_stage(&contract, 2, default_account, &mut ipfs);
+                stage3 = download_final_stage(&contract, 2, &mut ipfs);
                 spinner.message("Stage3 complete.".into());
                 // Download r1cs, stage1, stage2, stage3 from ipfs
                 let kp = keypair(&cs, &stage1, &stage2, &stage3);
