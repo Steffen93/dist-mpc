@@ -32,7 +32,7 @@ contract DistributedMPC is MultiPartyProtocol {
     function commit(bytes32 commitment) 
         public
         isInState(State.Commit) 
-        isPlayer 
+        isSenderPlayer 
         isNotEmptyBytes32(commitment)
         isEmptyBytes32(protocol.stageCommit.playerData[msg.sender].commitment)
     {
@@ -47,7 +47,7 @@ contract DistributedMPC is MultiPartyProtocol {
     function revealCommitment(bytes publicKey)
         public
         isInState(State.Reveal)
-        isPlayer
+        isSenderPlayer
         isNotEmptyBytes(publicKey)
         isEmptyBytes(protocol.stageCommit.playerData[msg.sender].publicKey)
     {
@@ -62,7 +62,7 @@ contract DistributedMPC is MultiPartyProtocol {
     function publishNizks(bytes nizks)
         public
         isInState(State.Nizks)
-        isPlayer
+        isSenderPlayer
         isNotEmptyBytes(nizks)
         isEmptyBytes(protocol.stageCommit.playerData[msg.sender].nizks)
     {                                   
@@ -87,7 +87,7 @@ contract DistributedMPC is MultiPartyProtocol {
     function publishStageResults(bytes stageTransformed)
         public
         isInStageTransformationState
-        isPlayer
+        isSenderPlayer
         isNotEmptyBytes(stageTransformed)
         previousPlayerCommitted
     {
@@ -157,5 +157,18 @@ contract DistributedMPC is MultiPartyProtocol {
         returns (bool) 
     {
         return msg.sender == players[0];
+    }
+
+    function isPlayer()
+        constant
+        public
+        returns (bool)
+    {
+        for(uint i = 0; i < players.length; i++){
+            if(players[i] == msg.sender){
+                return true;
+            }
+        }
+        return false;
     }
 }

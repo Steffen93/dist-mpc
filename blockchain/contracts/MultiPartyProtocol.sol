@@ -89,7 +89,7 @@ contract MultiPartyProtocol {
         _;
     }
     
-    modifier isPlayer (){
+    modifier isSenderPlayer (){
         bool found = false;
         for(uint i = 0; i < players.length; i++){
             if(players[i] == msg.sender){
