@@ -53,7 +53,6 @@ use web3::transports::Http;
 use rand::{SeedableRng, Rng};
 
 use std::time::Duration;
-use std::fmt::Write;
 use std::io::{self};
 use std::fs::File;
 
@@ -111,14 +110,6 @@ fn get_entropy() -> [u32; 8] {
 fn get_current_state<T: Transport>(contract: &ContractWrapper<T>) -> u64 {
     let current_state: U256 = contract.query("currentState", ());
     current_state.low_u64()
-}
-
-fn get_hex_string(bytes: &Vec<u8>) -> String {
-    let mut s = String::from("0x");
-    for byte in bytes {
-        write!(s, "{:02x}", byte).expect("Failed to write byte as hex");
-    }
-    s
 }
 
 fn to_bytes_fixed(vec: &Vec<u8>) -> [u8; 32] {
@@ -229,18 +220,15 @@ fn main() {
 
     println!("Connecting to Web3 and IPFS...");
     let (_eloop, transport) = Http::new("http://localhost:8545").expect("Error connecting to web3 instance!");
-    let mut manager: Manager<Http> = Manager::new(Web3::new(transport), "http://localhost", 5001);
-    println!("Successfully connected!");
+    let manager: Manager<Http> = Manager::new(Web3::new(transport), "http://localhost", 5001);
 
     let web3: Web3<Http> = manager.web3.clone();
-    let mut ipfsw: IPFSWrapper = IPFSWrapper::new("http://localhost", 5001);
-
-    //Filter poll interval
-    let default_account: Address = manager.init_account(account_index);
-    println!("Account: {:?}", default_account);    
+    let mut ipfs: IPFSWrapper = IPFSWrapper::new("http://localhost", 5001);
+    println!("Successfully connected!");
     
     let cs = CS::dummy();
     let contract = manager.init_contract(account_index, contract_address);
+    let default_account = contract.account(); 
 
     let filter_builder = EventFilterBuilder::new(web3.clone()); 
     let poll_interval = Duration::new(1, 0);
@@ -322,82 +310,83 @@ fn main() {
                 if is_coordinator(&contract) {
                     println!("Creating stage...");
                     stage1 = Stage1Contents::new(&cs);
-                    upload_and_init(&mut stage1, &contract, "stage1", &mut ipfsw);
+                    upload_and_init(&mut stage1, &contract, "stage1", &mut ipfs);
                     drop(stage1);
                 }
                 stage_prepared_filter.await(&poll_interval);
                 if previous_player.is_some() {
                     stage_result_published_filter.await(&poll_interval);                    
                 }
-                let mut stage1_init: Stage1Contents = download_stage(&contract, "getInitialStage", (), &mut ipfsw);        //needed for transformation verification
+                let mut stage1_init: Stage1Contents = download_stage(&contract, "getInitialStage", (), &mut ipfs);        //needed for transformation verification
                 if previous_player.is_none(){
                     stage1 = stage1_init.clone();
                 } else {
-                    stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfsw);
+                    stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage1, &mut stage1_init, &privkey, &contract, "stage1_transformed", &mut ipfsw);
+                transform_and_upload(&mut stage1, &mut stage1_init, &privkey, &contract, "stage1_transformed", &mut ipfs);
                 drop(stage1);
                 next_stage_filter.await(&poll_interval);
             },
             5 => {
                 if is_coordinator(&contract) {
-                    stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfsw);
+                    stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                     stage2 = Stage2Contents::new(&cs, &stage1);
                     drop(stage1);
-                    upload_and_init(&mut stage2, &contract, "stage2", &mut ipfsw);
+                    upload_and_init(&mut stage2, &contract, "stage2", &mut ipfs);
                     drop(stage2);
                 }
                 stage_prepared_filter.await(&poll_interval);
                 if previous_player.is_some() {
                     stage_result_published_filter.await(&poll_interval);                    
                 }
-                let mut stage2_init: Stage2Contents = download_stage(&contract, "getInitialStage", (), &mut ipfsw);        //needed for transformation verification
+                let mut stage2_init: Stage2Contents = download_stage(&contract, "getInitialStage", (), &mut ipfs);        //needed for transformation verification
                 if previous_player.is_none(){
                     stage2 = stage2_init.clone();
                 } else {
-                    stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfsw);
+                    stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage2, &mut stage2_init, &privkey, &contract, "stage2_transformed", &mut ipfsw);
+                transform_and_upload(&mut stage2, &mut stage2_init, &privkey, &contract, "stage2_transformed", &mut ipfs);
                 drop(stage2);
                 next_stage_filter.await(&poll_interval);
             },
             6 => {
                 if is_coordinator(&contract) {
                     println!("Creating stage...");
-                    stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfsw);
+                    stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                     stage3 = Stage3Contents::new(&cs, &stage2);
                     drop(stage2); 
-                    upload_and_init(&mut stage3, &contract, "stage3", &mut ipfsw);
+                    upload_and_init(&mut stage3, &contract, "stage3", &mut ipfs);
                     drop(stage3);
                 }
                 stage_prepared_filter.await(&poll_interval);
                 if previous_player.is_some() {
                     stage_result_published_filter.await(&poll_interval);                    
                 }
-                let mut stage3_init: Stage3Contents = download_stage(&contract, "getInitialStage", (), &mut ipfsw);        //needed for transformation verification
+                let mut stage3_init: Stage3Contents = download_stage(&contract, "getInitialStage", (), &mut ipfs);        //needed for transformation verification
                 if previous_player.is_none(){
                     stage3 = stage3_init.clone();
                 } else { 
-                    stage3 = download_stage(&contract, "getLatestTransformation", (), &mut ipfsw);
+                    stage3 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage3, &mut stage3_init, &privkey, &contract, "stage3_transformed", &mut ipfsw);
+                transform_and_upload(&mut stage3, &mut stage3_init, &privkey, &contract, "stage3_transformed", &mut ipfs);
                 drop(stage3);
                 next_stage_filter.await(&poll_interval);
             },
             7 => {
                 let spinner = SpinnerBuilder::new("Protocol finished! Downloading final stages...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
-                let cs: CS = download_r1cs(&contract, &mut ipfsw);
+                let cs: CS = download_r1cs(&contract, &mut ipfs);
                 spinner.message("R1CS complete.".into());
-                stage1 = download_stage(&contract, "getLastTransformation", 0, &mut ipfsw);
+                stage1 = download_stage(&contract, "getLastTransformation", 0, &mut ipfs);
                 spinner.message("Stage1 complete.".into());
-                stage2 = download_stage(&contract, "getLastTransformation", 1, &mut ipfsw);
+                stage2 = download_stage(&contract, "getLastTransformation", 1, &mut ipfs);
                 spinner.message("Stage2 complete.".into());
-                stage3 = download_stage(&contract, "getLastTransformation", 2, &mut ipfsw);
+                stage3 = download_stage(&contract, "getLastTransformation", 2, &mut ipfs);
                 spinner.message("Stage3 complete.".into());
                 // Download r1cs, stage1, stage2, stage3 from ipfs
                 let kp = keypair(&cs, &stage1, &stage2, &stage3);
                 kp.write_to_disk();
                 spinner.close();
+                println!("Wrote keypair to disk. You can exit the program now.");
                 stop = true;
             }
             _ => {

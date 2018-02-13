@@ -1,5 +1,4 @@
 use dist_files::ipfs::IPFSWrapper;
-use protocol::*;
 use super::blockchain::*;
 use web3::contract::*;
 use web3::futures::Future;
@@ -7,18 +6,16 @@ use web3::transports::*;
 use web3::types::{Address, U256};
 use web3::{Transport, Web3};
 
+use hex;
+use json;
 use std::fs::File;
 use std::io::Read;
-use json;
-use hex;
 
 
 pub struct Manager<T: Transport>{
     pub ipfs: IPFSWrapper,
     pub web3: Web3<T>,
-    contract: Option<ContractWrapper<T>>,
-    private_key: Option<PrivateKey>,
-    public_key: Option<PublicKey>
+    contract: Option<ContractWrapper<T>>
 }
 
 impl Manager <Http>{
@@ -27,9 +24,7 @@ impl Manager <Http>{
         Manager{
             ipfs: _ipfs,
             web3: _web3,
-            contract: None,
-            private_key: None,
-            public_key: None
+            contract: None
         }
     }
 

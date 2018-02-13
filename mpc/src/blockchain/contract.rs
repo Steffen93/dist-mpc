@@ -49,4 +49,8 @@ impl <T: Transport> ContractWrapper<T>{
             BlockNumber::Latest)
         .wait().expect(format!("Error querying contract method {:?}", method).as_str())
     }
+
+    pub fn account(&self) -> Address {
+        self.account
+    }
 }
