@@ -14,19 +14,27 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::thread;
 
-#[derive(Clone, Copy)]
-pub struct EventFilterBuilder<'a, T: 'a + Transport>{
-    web3: &'a Web3<&'a T>
+#[derive(Clone)]
+pub struct EventFilterBuilder<T: Transport>{
+    web3: Web3<T>
 }
 
-impl<'a, T: 'a + Transport> EventFilterBuilder<'a, T> {
-    pub fn new(web3: &'a Web3<&'a T>) -> EventFilterBuilder<T>{
+impl<T: Transport> EventFilterBuilder<T> {
+    pub fn new(web3: Web3<T>) -> Self{
         EventFilterBuilder {
             web3: web3
         }
     }
 
-    pub fn create_filter<F: Fn(Vec<Log>, Option<Address>) -> bool>(&self, topic: &str, msg: String, cb: F, extra_data: Option<Address>) -> EventFilter<'a, T, F> {
+    pub fn create_filter<F>(
+        &self, 
+        topic: &str, 
+        msg: String, 
+        cb: F, 
+        extra_data: Option<Address>
+        ) -> EventFilter<T, F> where
+        F: Fn(Vec<Log>, Option<Address>) -> bool
+    {
         let mut filter_builder: FilterBuilder = FilterBuilder::default();
         let topic_hash = Keccak256::digest(topic.as_bytes());
         filter_builder = filter_builder.topics(Some(vec![H256::from_str(self.clone().get_hex_string(&topic_hash.as_slice().to_owned()).as_str()).unwrap()]), None, None, None);
@@ -50,15 +58,15 @@ impl<'a, T: 'a + Transport> EventFilterBuilder<'a, T> {
     }
 }
 
-pub struct EventFilter<'a, T: 'a + Transport, F: Fn(Vec<Log>, Option<Address>) -> bool> {
-    filter: BaseFilter<&'a T, Log>,
+pub struct EventFilter<T: Transport, F: Fn(Vec<Log>, Option<Address>) -> bool> {
+    filter: BaseFilter<T, Log>,
     wait_message: String,
     callback: F,
     parameter: Option<Address>
 }
 
-impl<'a, T, F> EventFilter<'a, T, F> where 
-    T: 'a + Transport,
+impl<T, F> EventFilter<T, F> where 
+    T: Transport,
     F: Fn(Vec<Log>, Option<Address>) -> bool
 {
     pub fn await(&mut self, duration: &Duration){

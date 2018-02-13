@@ -175,6 +175,7 @@ impl Decodable for PublicKey {
 }
 
 /// The secrets sampled by the player.
+#[derive(Clone, Copy)]
 pub struct PrivateKey {
     pub tau: Fr,
     pub rho_a: Fr,

@@ -4,13 +4,13 @@ use web3::futures::Future;
 use web3::{Transport};
 use web3::types::{Address, BlockNumber, U256};
 
-pub struct ContractWrapper<'a, T: 'a + Transport>{
-    contract: &'a Contract<T>,
+pub struct ContractWrapper<T:Transport>{
+    contract: Contract<T>,
     account: Address
 }
 
-impl <'a, T: Transport> ContractWrapper<'a, T>{
-    pub fn new(contract: &'a Contract<T>, account: Address) -> ContractWrapper<T>{
+impl <T: Transport> ContractWrapper<T>{
+    pub fn new(contract: Contract<T>, account: Address) -> ContractWrapper<T>{
         ContractWrapper{
             contract: contract,
             account: account
