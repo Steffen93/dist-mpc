@@ -50,13 +50,11 @@ RUN curl -sL https://deb.nodesource.com/setup_6.x | bash - \
 
 # use this for local development
 
-#COPY . /root/dist-mpc
-
 # build library from git, use for production
 
-RUN git clone https://${git_user}:${git_pw}@github.com/steffen93/dist-mpc --branch rust-to-blockchain && echo "Finished"
+RUN git clone https://${git_user}:${git_pw}@github.com/steffen93/dist-mpc --branch rust-to-blockchain
 
 RUN cd dist-mpc/blockchain && truffle compile \
   && cd ../mpc && cargo build --bin player
 
-EXPOSE 8545 80 5001
+EXPOSE 8545 5001

@@ -60,7 +60,7 @@ hex = "0.3.1"
 spinner = "0.4.0"
 clap = {version = "2.29.4", features = ["yaml"]}
 ipfs-api = { git = "https://github.com/rmnoff/rust-ipfs-api" }
-web3 = { git = "https://github.com/tomusdrw/rust-web3" }
+web3 = "0.2.0"
 
 # Coordinator needs these
 log = "*"

@@ -38,7 +38,6 @@ impl<T: Transport> EventFilterBuilder<T> {
         let mut filter_builder: FilterBuilder = FilterBuilder::default();
         let topic_hash = Keccak256::digest(topic.as_bytes());
         let hex_str = self.get_hex_string(&topic_hash.as_slice().to_owned());
-        print!("hex String: {:?}", hex_str);
         filter_builder = filter_builder.topics(Some(vec![H256::from_str(hex_str.as_str()).expect("Error parsing topic from string!")]), None, None, None);
         let filter: Filter = filter_builder.build();
         let create_filter = self.web3.eth_filter().create_logs_filter(filter);
@@ -52,7 +51,7 @@ impl<T: Transport> EventFilterBuilder<T> {
     }
 
     fn get_hex_string(&self, bytes: &Vec<u8>) -> String {
-        let mut s = String::from("0x");
+        let mut s = String::new();
         for byte in bytes {
             write!(s, "{:02x}", byte).expect("Failed to write byte as hex");
         }
