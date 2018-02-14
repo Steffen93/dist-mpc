@@ -2,9 +2,7 @@ FROM ubuntu:16.04
 
 MAINTAINER Steffen Härtlein <steffen.haertlein@campus.tu-berlin.de>
 
-ARG libsodium_version=libsodium-stable-2018-02-13
-ARG git_user
-ARG git_pw
+ARG libsodium_version=LATEST
 
 WORKDIR /root
 
@@ -52,7 +50,9 @@ RUN curl -sL https://deb.nodesource.com/setup_6.x | bash - \
 
 # build library from git, use for production
 
-RUN git clone https://${git_user}:${git_pw}@github.com/steffen93/dist-mpc --branch rust-to-blockchain
+ARG git_user
+ARG git_pw
+RUN git clone https://${git_user}:${git_pw}@github.com/steffen93/dist-mpc --branch rust-to-blockchain && echo "Finished!!"
 
 RUN cd dist-mpc/blockchain && truffle compile \
   && cd ../mpc && cargo build --bin player
