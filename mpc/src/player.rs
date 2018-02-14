@@ -229,6 +229,7 @@ fn main() {
     let cs = CS::dummy();
     let contract = manager.init_contract(account_index, contract_address);
     let default_account = contract.account(); 
+    println!("Default account: {:?}", default_account);
 
     let filter_builder = EventFilterBuilder::new(web3.clone()); 
     let poll_interval = Duration::new(1, 0);

@@ -48,8 +48,15 @@ RUN curl -sL https://deb.nodesource.com/setup_6.x | bash - \
   && apt-get install -y nodejs \
   && npm i -g truffle
 
-# build library
+# use this for local development
 
-RUN git clone https://${git_user}:${git_pw}@github.com/steffen93/dist-mpc --branch rust-to-blockchain \
-    && cd dist-mpc/blockchain && truffle compile \
-    && cd ../mpc && cargo build --bin player
+#COPY . /root/dist-mpc
+
+# build library from git, use for production
+
+RUN git clone https://${git_user}:${git_pw}@github.com/steffen93/dist-mpc --branch rust-to-blockchain
+
+RUN cd dist-mpc/blockchain && truffle compile \
+  && cd ../mpc && cargo build --bin player
+
+EXPOSE 8545 80 5001
