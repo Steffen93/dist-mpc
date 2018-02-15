@@ -147,8 +147,8 @@ contract MultiPartyProtocol {
 
     function allCommitmentsReady() constant internal returns (bool) {
         for(uint i = 0; i < players.length; i++){
-            if(!protocol.stageCommit.playerData[players[i]].initialized ||
-            protocol.stageCommit.playerData[players[i]].commitment.length == 0){
+            if(!(protocol.stageCommit.playerData[players[i]].initialized &&
+            protocol.stageCommit.playerData[players[i]].commitment.length > 0)){
                 return false;
             }
         }
@@ -157,8 +157,8 @@ contract MultiPartyProtocol {
 
     function allNizksReady() constant internal returns (bool) {
         for(uint i = 0; i < players.length; i++){
-            if(!protocol.stageCommit.playerData[players[i]].initialized ||
-            protocol.stageCommit.playerData[players[i]].nizks.length == 0){
+            if(!(protocol.stageCommit.playerData[players[i]].initialized &&
+            protocol.stageCommit.playerData[players[i]].nizks.length > 0)){
                 return false;
             }
         }
@@ -168,8 +168,8 @@ contract MultiPartyProtocol {
     function allCommitmentsRevealed() constant internal returns (bool) {
         for(uint i = 0; i < players.length; i++){
             bytes memory pubKey = protocol.stageCommit.playerData[players[i]].publicKey;
-            if(!protocol.stageCommit.playerData[players[i]].initialized 
-            || isBytesEmpty(pubKey)){
+            if(!(protocol.stageCommit.playerData[players[i]].initialized 
+            && !isBytesEmpty(pubKey))){
                 return false;
             }
         }
