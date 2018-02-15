@@ -26,7 +26,6 @@ impl <T: Transport> ContractWrapper<T>{
             self.account, 
             Options::default())
         .wait().expect("Gas estimation should not fail!");
-
         self.contract.call(
             method, 
             tokens.as_slice(), 

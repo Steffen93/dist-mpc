@@ -42,7 +42,7 @@ use self::dist_files::*;
 use spinner::SpinnerBuilder;
 
 use bincode::SizeLimit::Infinite;
-use bincode::rustc_serialize::{encode};
+use bincode::rustc_serialize::{decode, encode};
 use rustc_serialize::{Encodable, Decodable};
 
 use ethereum_types::{Address, H256, U256};
@@ -56,9 +56,12 @@ use rand::{SeedableRng, Rng};
 use std::time::Duration;
 use std::io::{self};
 use std::fs::File;
+use std::env::var;
 
-pub static mut TOTAL_BYTES: u64 = 0;
 pub const THREADS: usize = 8;
+pub static mut TOTAL_BYTES: u64 = 0;
+pub const HOST_ENV_KEY: &str = "DIST_MPC_HOST";
+pub const DEFAULT_HOST: &str = "localhost";
 
 fn get_entropy() -> [u32; 8] {
     use blake2_rfc::blake2s::blake2s;
@@ -121,7 +124,7 @@ fn download_r1cs<T>(contract: &ContractWrapper<T>, ipfs: &mut IPFSWrapper) -> CS
 {
     let spinner = SpinnerBuilder::new("Querying constraint system hash from Ethereum...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     let hash: Vec<u8> = contract.query("getConstraintSystem", ());
-    spinner.update(format!("Downloading constraint system from ipfs (hash: {:?})...", String::from_utf8(hash.clone()).unwrap()));
+    spinner.message(format!("Downloading constraint system from ipfs (hash: {:?})...", String::from_utf8(hash.clone()).unwrap()));
     let cs = ipfs.download_cs(String::from_utf8(hash).unwrap().as_str());
     spinner.close();
     cs
@@ -133,26 +136,27 @@ fn download_stage<P, S, T>(contract: &ContractWrapper<T>, method: &str, params: 
 {
     let spinner = SpinnerBuilder::new("Querying stage hash from Ethereum...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     let stage_hash: Vec<u8> = contract.query(method, params);
-    spinner.update(format!("Downloading stage from IPFS (hash: {:?})", String::from_utf8(stage_hash.clone()).unwrap()));
+    spinner.message(format!("Downloading stage from IPFS (hash: {:?})", String::from_utf8(stage_hash.clone()).unwrap()));
     let stage = ipfs.download_stage(String::from_utf8(stage_hash).unwrap().as_str());
     spinner.close();
     stage
 }
 
-fn transform_and_upload<S, T>(stage: &mut S, stage_init: &mut S, privkey: &PrivateKey, contract: &ContractWrapper<T>, file_name: &str, ipfs: &mut IPFSWrapper) where
+fn transform_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, pubkey: &PublicKey, contract: &ContractWrapper<T>, file_name: &str, ipfs: &mut IPFSWrapper) where
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
+    let prev_stage = &stage.clone();
     let spinner = SpinnerBuilder::new("Transforming stage...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     stage.transform(privkey);
-    assert!(stage.is_well_formed(stage_init));
-    spinner.update("Uploading transformation to ipfs...".into());
+    assert!(stage.verify_transform(prev_stage, pubkey), "Invalid stage transformation!");
+    spinner.message("Uploading transformation to ipfs...".into());
     let stage_transformed_ipfs = ipfs.upload_object(stage, file_name);
-    spinner.update(format!("Uploaded transformed stage to ipfs (size: {} Bytes)", stage_transformed_ipfs.size));
+    spinner.message(format!("Uploaded transformed stage to ipfs (size: {} Bytes)", stage_transformed_ipfs.size));
     unsafe {
         TOTAL_BYTES += u64::from_str_radix(&stage_transformed_ipfs.size, 10).unwrap();
     }
-    spinner.update(format!("Publishing transformation on Ethereum (hash: {:?})...", stage_transformed_ipfs.hash));
+    spinner.message(format!("Publishing transformation (hash: {:?})...", stage_transformed_ipfs.hash));
     contract.call("publishStageResults", stage_transformed_ipfs.hash.into_bytes());
     spinner.close();
 }
@@ -163,7 +167,7 @@ fn upload_and_init<S, T>(stage: &mut S, contract: &ContractWrapper<T>, file_name
 {
     let spinner = SpinnerBuilder::new("Uploading initial stage to ipfs ...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     let stage_ipfs = ipfs.upload_object(stage, file_name);
-    spinner.update(format!("Uploaded initial stage to ipfs (size: {} Bytes)", stage_ipfs.size));
+    spinner.message(format!("Uploaded initial stage to ipfs (size: {} Bytes)", stage_ipfs.size));
     unsafe {
         TOTAL_BYTES += u64::from_str_radix(&stage_ipfs.size, 10).unwrap();
     }
@@ -220,19 +224,37 @@ fn fetch_all_commitments<T: Transport>(contract: &ContractWrapper<T>, players: V
     all_commitments
 }
 
+fn verify_all_nizks_valid<T: Transport>(contract: &ContractWrapper<T>, players: Vec<Address>, hash_of_all_commitments: &Digest512) {
+    for i in 0..players.len() {
+        let player_index: u64 = i as u64; 
+        let nizks_bin: Vec<u8> = contract.query("getNizks", player_index);
+        let pubkey_bin: Vec<u8> = contract.query("getPublicKey", player_index);
+        let nizks: PublicKeyNizks = decode(&nizks_bin).expect("Should be Nizks object!");
+        let pubkey: PublicKey = decode(&pubkey_bin).expect("Should be PublicKey object!");
+        assert!(nizks.is_valid(&pubkey, hash_of_all_commitments), format!("Nizks was invalid for player {}! Aborting.", i));
+    }
+}
+
 fn main() {
+    let host_opt = var(HOST_ENV_KEY);
+    let mut host = String::from(DEFAULT_HOST);
+    if host_opt.is_ok() {
+            host = host_opt.unwrap();
+            println!("Using host from environment variable: {:?}", host);
+    }
+
     let yaml = load_yaml!("../cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let account_index = matches.value_of("account");
     let contract_address = matches.value_of("contract");
 
-    println!("Connecting to Web3 and IPFS...");
-    let (_eloop, transport) = Http::new("http://localhost:8545").expect("Error connecting to web3 instance!");
-    let manager: Manager<Http> = Manager::new(Web3::new(transport), "http://localhost", 5001);
+    println!("Initializing Web3 and IPFS...");
+    let (_eloop, transport) = Http::new(format!("http://{}:8545", host).as_str()).expect("Error connecting to web3 instance!");
+    let manager: Manager<Http> = Manager::new(Web3::new(transport), format!("http://{}", host).as_str(), 5001);
 
     let web3: Web3<Http> = manager.web3.clone();
-    let mut ipfs: IPFSWrapper = IPFSWrapper::new("http://localhost", 5001);
-    println!("Successfully connected!");
+    let mut ipfs: IPFSWrapper = IPFSWrapper::new(format!("http://{}", host).as_str(), 5001);
+    println!("Successfully initialized.");
     
     let cs = CS::dummy();
     let contract = manager.init_contract(account_index, contract_address);
@@ -253,7 +275,7 @@ fn main() {
         contract.call("join", ());
         player_joined_filter.await(&poll_interval);    
     } else {
-        println!("You are already a player in the protocol, continuing...");
+        println!("You are a player in the protocol already, continuing...");
     }
 
     let mut players: Vec<Address> = get_players(&contract);
@@ -297,11 +319,13 @@ fn main() {
                 players = get_players(&contract);
             },
             1 => { 
+                println!("Committing: {:?}", to_bytes_fixed(&commitment.clone()));
                 contract.call("commit", to_bytes_fixed(&commitment.clone()));
                 next_stage_filter.await(&poll_interval);
                 println!("All players committed. Proceeding to next round.");
             },
             2 => {
+                println!("Revealing: {:?}", pubkey_encoded.clone());
                 contract.call("revealCommitment", pubkey_encoded.clone());
                 println!("Public Key revealed! Waiting for other players to reveal...");
                 next_stage_filter.await(&poll_interval);
@@ -313,12 +337,12 @@ fn main() {
                 println!("Creating nizks...");
                 let nizks = pubkey.nizks(&mut chacha_rng, &privkey, &hash_of_all_commitments);
                 println!("Nizks created.");
-                assert!(nizks.is_valid(&pubkey, &hash_of_all_commitments));
-                //TODO: check all nizks for validity!
                 let nizks_encoded = encode(&nizks, Infinite).unwrap();
                 println!("size of nizks: {} B", nizks_encoded.len());
                 contract.call("publishNizks", nizks_encoded);
                 next_stage_filter.await(&poll_interval);
+                println!("All nizks published. Checking validity...");
+                verify_all_nizks_valid(&contract, players.clone(), &hash_of_all_commitments);
             },
             4 => {
                 if is_coordinator(&contract) {
@@ -331,13 +355,13 @@ fn main() {
                 if previous_player.is_some() {
                     stage_result_published_filter.await(&poll_interval);                    
                 }
-                let mut stage1_init: Stage1Contents = download_stage(&contract, "getInitialStage", (), &mut ipfs);        //needed for transformation verification
+                let mut stage1: Stage1Contents;
                 if previous_player.is_none(){
-                    stage1 = stage1_init.clone();
+                    stage1 = download_stage(&contract, "getInitialStage", (), &mut ipfs);
                 } else {
                     stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage1, &mut stage1_init, &privkey, &contract, "stage1_transformed", &mut ipfs);
+                transform_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1_transformed", &mut ipfs);
                 drop(stage1);
                 next_stage_filter.await(&poll_interval);
             },
@@ -354,13 +378,13 @@ fn main() {
                 if previous_player.is_some() {
                     stage_result_published_filter.await(&poll_interval);                    
                 }
-                let mut stage2_init: Stage2Contents = download_stage(&contract, "getInitialStage", (), &mut ipfs);        //needed for transformation verification
+                let mut stage2: Stage2Contents;
                 if previous_player.is_none(){
-                    stage2 = stage2_init.clone();
+                    stage2 = download_stage(&contract, "getInitialStage", (), &mut ipfs);
                 } else {
                     stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage2, &mut stage2_init, &privkey, &contract, "stage2_transformed", &mut ipfs);
+                transform_and_upload(&mut stage2, &privkey, &pubkey, &contract, "stage2_transformed", &mut ipfs);
                 drop(stage2);
                 next_stage_filter.await(&poll_interval);
             },
@@ -377,33 +401,33 @@ fn main() {
                 if previous_player.is_some() {
                     stage_result_published_filter.await(&poll_interval);                    
                 }
-                let mut stage3_init: Stage3Contents = download_stage(&contract, "getInitialStage", (), &mut ipfs);        //needed for transformation verification
+                let mut stage3: Stage3Contents;
                 if previous_player.is_none(){
-                    stage3 = stage3_init.clone();
-                } else { 
+                    stage3 = download_stage(&contract, "getInitialStage", (), &mut ipfs);
+                } else {
                     stage3 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage3, &mut stage3_init, &privkey, &contract, "stage3_transformed", &mut ipfs);
+                transform_and_upload(&mut stage3, &privkey, &pubkey, &contract, "stage3_transformed", &mut ipfs);
                 drop(stage3);
                 next_stage_filter.await(&poll_interval);
             },
             7 => {
                 let spinner = SpinnerBuilder::new("Protocol finished! Downloading final stages and creating keypair...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
                 let cs: CS = download_r1cs(&contract, &mut ipfs);
-                spinner.update("R1CS complete.".into());
+                spinner.message("R1CS complete.".into());
                 stage1 = download_stage(&contract, "getLastTransformation", 0, &mut ipfs);
-                spinner.update("Stage1 complete.".into());
+                spinner.message("Stage1 complete.".into());
                 stage2 = download_stage(&contract, "getLastTransformation", 1, &mut ipfs);
-                spinner.update("Stage2 complete.".into());
+                spinner.message("Stage2 complete.".into());
                 stage3 = download_stage(&contract, "getLastTransformation", 2, &mut ipfs);
-                spinner.update("Stage3 complete.".into());
+                spinner.message("Stage3 complete.".into());
                 // Download r1cs, stage1, stage2, stage3 from ipfs
                 let kp = keypair(&cs, &stage1, &stage2, &stage3);
                 kp.write_to_disk();
                 spinner.close();
                 println!("Wrote keypair to disk (pk, vk). You can exit the program now.");
                 unsafe {
-                    println!("Total amount of bytes written to IPFS by this peer: {:?}", TOTAL_BYTES);
+                    println!("Total amount of bytes written to IPFS by this peer: {:?} B", TOTAL_BYTES);
                 }
                 stop = true;
             }

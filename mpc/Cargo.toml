@@ -10,28 +10,13 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 
 [[bin]]
-name = "coordinator"
-path = "src/coordinator.rs"
-test = true
-
-[[bin]]
 name = "verifier"
 path = "src/verifier.rs"
 test = false
 
 [[bin]]
-name = "compute"
-path = "src/compute.rs"
-test = false
-
-[[bin]]
 name = "player"
 path = "src/player.rs"
-test = false
-
-[[bin]]
-name = "network"
-path = "src/network.rs"
 test = false
 
 [features]

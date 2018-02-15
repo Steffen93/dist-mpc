@@ -61,7 +61,7 @@ impl Manager <Http>{
         }
         
         let contract = Contract::deploy(self.web3.eth(), &abi.dump().into_bytes()).expect("Abi should be well-formed!")
-        .options(Options::with(|opt|{opt.gas = Some(U256::from(3000000))}))
+        .options(Options::with(|opt|{opt.gas = Some(U256::from(4000000))}))
         .execute(bytecode_hex, cs_ipfs.hash.into_bytes(), account).expect("execute failed!").wait().expect("Error after wait!");
         
         contract
