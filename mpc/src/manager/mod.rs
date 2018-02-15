@@ -6,7 +6,7 @@ use web3::transports::*;
 use web3::types::{Address, U256};
 use web3::{Transport, Web3};
 
-use TOTAL_BYTES;
+use consts::TOTAL_BYTES;
 
 use hex;
 use json;

@@ -39,6 +39,9 @@ use self::manager::*;
 mod dist_files;
 use self::dist_files::*;
 
+mod consts;
+use self::consts::*;
+
 use spinner::SpinnerBuilder;
 
 use bincode::SizeLimit::Infinite;
@@ -57,11 +60,6 @@ use std::time::Duration;
 use std::io::{self};
 use std::fs::File;
 use std::env::var;
-
-pub const THREADS: usize = 8;
-pub static mut TOTAL_BYTES: u64 = 0;
-pub const HOST_ENV_KEY: &str = "DIST_MPC_HOST";
-pub const DEFAULT_HOST: &str = "localhost";
 
 fn get_entropy() -> [u32; 8] {
     use blake2_rfc::blake2s::blake2s;
@@ -243,7 +241,7 @@ fn main() {
             println!("Using host from environment variable: {:?}", host);
     }
 
-    let yaml = load_yaml!("../cli.yml");
+    let yaml = load_yaml!("../player.yml");
     let matches = App::from_yaml(yaml).get_matches();
     let account_index = matches.value_of("account");
     let contract_address = matches.value_of("contract");
@@ -319,13 +317,11 @@ fn main() {
                 players = get_players(&contract);
             },
             1 => { 
-                println!("Committing: {:?}", to_bytes_fixed(&commitment.clone()));
                 contract.call("commit", to_bytes_fixed(&commitment.clone()));
                 next_stage_filter.await(&poll_interval);
                 println!("All players committed. Proceeding to next round.");
             },
             2 => {
-                println!("Revealing: {:?}", pubkey_encoded.clone());
                 contract.call("revealCommitment", pubkey_encoded.clone());
                 println!("Public Key revealed! Waiting for other players to reveal...");
                 next_stage_filter.await(&poll_interval);
@@ -357,7 +353,7 @@ fn main() {
                 }
                 let mut stage1: Stage1Contents;
                 if previous_player.is_none(){
-                    stage1 = download_stage(&contract, "getInitialStage", (), &mut ipfs);
+                    stage1 = download_stage(&contract, "getInitialStage", 0, &mut ipfs);
                 } else {
                     stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
@@ -380,7 +376,7 @@ fn main() {
                 }
                 let mut stage2: Stage2Contents;
                 if previous_player.is_none(){
-                    stage2 = download_stage(&contract, "getInitialStage", (), &mut ipfs);
+                    stage2 = download_stage(&contract, "getInitialStage", 1, &mut ipfs);
                 } else {
                     stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
@@ -403,7 +399,7 @@ fn main() {
                 }
                 let mut stage3: Stage3Contents;
                 if previous_player.is_none(){
-                    stage3 = download_stage(&contract, "getInitialStage", (), &mut ipfs);
+                    stage3 = download_stage(&contract, "getInitialStage", 2, &mut ipfs);
                 } else {
                     stage3 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
@@ -415,11 +411,11 @@ fn main() {
                 let spinner = SpinnerBuilder::new("Protocol finished! Downloading final stages and creating keypair...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
                 let cs: CS = download_r1cs(&contract, &mut ipfs);
                 spinner.message("R1CS complete.".into());
-                stage1 = download_stage(&contract, "getLastTransformation", 0, &mut ipfs);
+                stage1 = download_stage(&contract, "getTransformation", (0, (players.len()-1) as u64), &mut ipfs);
                 spinner.message("Stage1 complete.".into());
-                stage2 = download_stage(&contract, "getLastTransformation", 1, &mut ipfs);
+                stage2 = download_stage(&contract, "getTransformation", (1, (players.len()-1) as u64), &mut ipfs);
                 spinner.message("Stage2 complete.".into());
-                stage3 = download_stage(&contract, "getLastTransformation", 2, &mut ipfs);
+                stage3 = download_stage(&contract, "getTransformation", (2, (players.len()-1) as u64), &mut ipfs);
                 spinner.message("Stage3 complete.".into());
                 // Download r1cs, stage1, stage2, stage3 from ipfs
                 let kp = keypair(&cs, &stage1, &stage2, &stage3);

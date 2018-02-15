@@ -8,6 +8,20 @@ extern crate rustc_serialize;
 extern crate blake2_rfc;
 extern crate bincode;
 extern crate byteorder;
+extern crate web3;
+extern crate hex;
+extern crate json;
+extern crate serde_json;
+extern crate ipfs_api;
+extern crate sha3;
+extern crate spinner;
+
+#[macro_use]
+extern crate clap;
+use clap::{App};
+
+#[macro_use]
+extern crate serde_derive; 
 
 #[macro_use]
 mod protocol;
@@ -15,17 +29,52 @@ mod protocol;
 mod consts;
 use self::consts::*;
 
-use std::fs::File;
+mod manager;
+use self::manager::*;
+
+mod dist_files;
+use self::dist_files::*;
+
+mod blockchain;
+use bincode::rustc_serialize::{decode};
+
 use protocol::*;
 use snark::*;
+use std::env::var;
 
-use bincode::SizeLimit::Infinite;
-use bincode::rustc_serialize::{encode_into, decode_from};
+use web3::{Web3};
+use web3::transports::Http;
+use web3::types::{Address};
 
-pub const THREADS: usize = 128;
+pub struct PlayerResult {
+    player: Address,
+    commitment: [u8; 32],
+    pubkey: PublicKey,
+    nizks: PublicKeyNizks,
+    stage1: Stage1Contents,
+    stage2: Stage2Contents,
+    stage3: Stage3Contents    
+}
 
 fn main() {
-    let mut f = File::open("transcript").unwrap();
+    let host_opt = var(HOST_ENV_KEY);
+    let mut host = String::from(DEFAULT_HOST);
+    if host_opt.is_ok() {
+            host = host_opt.unwrap();
+            println!("Using host from environment variable: {:?}", host);
+    }
+
+    let yaml = load_yaml!("../verifier.yml");
+    let matches = App::from_yaml(yaml).get_matches();
+    let contract_address = matches.value_of("contract");
+
+    println!("Initializing Web3 and IPFS...");
+    let (_eloop, transport) = Http::new(format!("http://{}:8545", host).as_str()).expect("Error connecting to web3 instance!");
+    let manager: Manager<Http> = Manager::new(Web3::new(transport), format!("http://{}", host).as_str(), 5001);
+    let mut ipfs: IPFSWrapper = IPFSWrapper::new(format!("http://{}", host).as_str(), 5001);
+    println!("Successfully initialized.");
+
+    let contract = manager.init_contract(None, contract_address);
 
     let cs = {
         if USE_DUMMY_CS {
@@ -35,135 +84,68 @@ fn main() {
         }
     };
 
-    let num_players: usize = decode_from(&mut f, Infinite).unwrap();
-    println!("Number of players: {}", num_players);
-
     let mut commitments = vec![];
-    let mut pubkeys = vec![];
-    for i in 0..num_players {
-        let comm: Digest256 = decode_from(&mut f, Infinite).unwrap();
-        commitments.push(comm);
-        println!("Player {} commitment: {}", i+1, comm.to_string());
+    let number_of_players: u64 = contract.query("getNumberOfPlayers", ());
+    let mut players: Vec<PlayerResult> = vec![];
+    for i in 0..number_of_players { 
+        let player: Address = contract.query("players", i);
+        let commitment: [u8; 32] = contract.query("getCommitment", player);
+        commitments.push(commitment);
+        let publickey: Vec<u8> = contract.query("getPublicKey", i);
+        let nizks: Vec<u8> = contract.query("getNizks", i);
+        let stage1_hash: Vec<u8> = contract.query("getTransformation", (0, i));
+        let stage2_hash: Vec<u8> = contract.query("getTransformation", (1, i));
+        let stage3_hash: Vec<u8> = contract.query("getTransformation", (2, i));
+        players.push(PlayerResult {
+            player: player,
+            commitment: commitment,
+            pubkey: decode(&publickey).unwrap(),
+            nizks: decode(&nizks).unwrap(),
+            stage1: ipfs.download_stage(String::from_utf8(stage1_hash).unwrap().as_str()),
+            stage2: ipfs.download_stage(String::from_utf8(stage2_hash).unwrap().as_str()),
+            stage3: ipfs.download_stage(String::from_utf8(stage3_hash).unwrap().as_str())
+        });
     }
 
     // Hash of all the commitments.
     let hash_of_commitments = Digest512::from(&commitments).unwrap();
 
     // Hash of the last message
-    let mut last_message_hash = Digest256::from(&commitments).unwrap();
-
-    let mut stage1 = Stage1Contents::new(&cs);
-
-    for i in 0..num_players {
-        let expected_ihash = {
-            let h = digest256_from_parts!(
-                hash_of_commitments,
-                stage1,
-                last_message_hash
-            );
-            println!("Player {} hash of disk A: {}", i+1, h.to_string());
-            h
-        };
-        let pubkey: PublicKey = decode_from(&mut f, Infinite).unwrap();
-
+    let mut stage1 = &Stage1Contents::new(&cs);
+    for i in 0..players.len() {
+        let pubkey: &PublicKey = &players[i].pubkey;
         if pubkey.hash() != commitments[i] {
             panic!("Invalid commitment from player {}", i);
         }
-
-        let nizks: PublicKeyNizks = decode_from(&mut f, Infinite).unwrap();
-
+        let nizks: &PublicKeyNizks = &players[i].nizks;
         if !nizks.is_valid(&pubkey, &hash_of_commitments) {
             panic!("Invalid nizks from player {}", i);
         }
-
-        let new_stage: Stage1Contents = decode_from(&mut f, Infinite).unwrap();
+        let new_stage: &Stage1Contents = &players[i].stage1;
         if !new_stage.verify_transform(&stage1, &pubkey) {
             panic!("Invalid stage1 transformation from player {}", i);
         }
-
-        let ihash: Digest256 = decode_from(&mut f, Infinite).unwrap();
-        assert!(ihash == expected_ihash);
-
-        {
-            last_message_hash = digest256_from_parts!(
-                pubkey,
-                nizks,
-                new_stage,
-                ihash
-            );
-            println!("Player {} hash of disk B: {}", i+1, last_message_hash.to_string());
-        }
-
         stage1 = new_stage;
-        pubkeys.push(pubkey);
     }
 
-    let mut stage2 = Stage2Contents::new(&cs, &stage1);
-
-    for i in 0..num_players {
-        let expected_ihash = {
-            let h = digest256_from_parts!(
-                stage2,
-                last_message_hash
-            );
-            println!("Player {} hash of disk C: {}", i+1, h.to_string());
-
-            h
-        };
-
-        let new_stage: Stage2Contents = decode_from(&mut f, Infinite).unwrap();
-        if !new_stage.verify_transform(&stage2, &pubkeys[i]) {
+    let mut stage2 = &Stage2Contents::new(&cs, stage1);
+    for i in 0..players.len() {
+        let new_stage: &Stage2Contents = &players[i].stage2;
+        if !new_stage.verify_transform(stage2, &players[i].pubkey) {
             panic!("Invalid stage2 transformation from player {}", i);
         }
-
-        let ihash: Digest256 = decode_from(&mut f, Infinite).unwrap();
-        assert!(ihash == expected_ihash);
-
-        {
-            last_message_hash = digest256_from_parts!(
-                new_stage,
-                ihash
-            );
-
-            println!("Player {} hash of disk D: {}", i+1, last_message_hash.to_string());
-        }
-
         stage2 = new_stage;
     }
 
-    let mut stage3 = Stage3Contents::new(&cs, &stage2);
-
-    for i in 0..num_players {
-        let expected_ihash = {
-            let h = digest256_from_parts!(
-                stage3,
-                last_message_hash
-            );
-            println!("Player {} hash of disk E: {}", i+1, h.to_string());
-
-            h
-        };
-
-        let new_stage: Stage3Contents = decode_from(&mut f, Infinite).unwrap();
-        if !new_stage.verify_transform(&stage3, &pubkeys[i]) {
+    let mut stage3 = &Stage3Contents::new(&cs, stage2);
+    for i in 0..players.len() {
+        let new_stage: &Stage3Contents = &players[i].stage3;
+        if !new_stage.verify_transform(stage3, &players[i].pubkey) {
             panic!("Invalid stage3 transformation from player {}", i);
         }
-
-        let ihash: Digest256 = decode_from(&mut f, Infinite).unwrap();
-
-        assert!(expected_ihash == ihash);
-
-        {
-            last_message_hash = digest256_from_parts!(
-                new_stage,
-                ihash
-            );
-            println!("Player {} hash of disk F: {}", i+1, last_message_hash.to_string());
-        }
-
         stage3 = new_stage;
     }
 
-    let kp = keypair(&cs, &stage1, &stage2, &stage3);
+    let kp = keypair(&cs, stage1, stage2, stage3);
     kp.write_to_disk();
 }
