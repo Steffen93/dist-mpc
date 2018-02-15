@@ -53,4 +53,8 @@ impl <T: Transport> ContractWrapper<T>{
     pub fn account(&self) -> Address {
         self.account
     }
+
+    pub fn address(&self) -> Address {
+        self.contract.address()
+    }
 }
