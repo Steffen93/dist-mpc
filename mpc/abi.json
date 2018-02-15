@@ -28,6 +28,25 @@
       "type": "function"
     },
     {
+      "constant": true,
+      "inputs": [
+        {
+          "name": "playerIndex",
+          "type": "uint256"
+        }
+      ],
+      "name": "getNizks",
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes"
+        }
+      ],
+      "payable": false,
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
       "constant": false,
       "inputs": [
         {
@@ -78,6 +97,25 @@
         }
       ],
       "name": "getLastTransformation",
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes"
+        }
+      ],
+      "payable": false,
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "constant": true,
+      "inputs": [
+        {
+          "name": "playerIndex",
+          "type": "uint256"
+        }
+      ],
+      "name": "getPublicKey",
       "outputs": [
         {
           "name": "",

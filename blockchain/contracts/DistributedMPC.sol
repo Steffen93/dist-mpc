@@ -143,12 +143,30 @@ contract DistributedMPC is MultiPartyProtocol {
         return protocol.latestTransformation;
     }
 
+    function getNizks(uint playerIndex)
+        constant
+        public
+        returns (bytes)
+    {
+        require(playerIndex < players.length);
+        return protocol.stageCommit.playerData[players[playerIndex]].nizks;
+    }
+
     function getNumberOfPlayers()
         constant
         public
         returns (uint)
     {
         return players.length;
+    }
+
+    function getPublicKey(uint playerIndex)
+        constant
+        public
+        returns (bytes)
+    {
+        require(playerIndex < players.length);
+        return protocol.stageCommit.playerData[players[playerIndex]].publicKey;
     }
 
     function isCoordinator()
