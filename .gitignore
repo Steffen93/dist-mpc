@@ -12,7 +12,7 @@ Cargo.lock
 **/transcript
 **/vk
 **/pk
-**/r1cs*
+**/r1cs_*
 mpc/stage*
 mpc/nizks
 
