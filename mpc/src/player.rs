@@ -13,6 +13,7 @@ extern crate ethabi;
 extern crate hex;
 extern crate spinner;
 extern crate json;
+extern crate ethereum_types;
 
 #[macro_use]
 extern crate clap;
@@ -45,8 +46,9 @@ use bincode::SizeLimit::Infinite;
 use bincode::rustc_serialize::{encode};
 use rustc_serialize::{Encodable, Decodable};
 
+use ethereum_types::{Address, H256, U256};
 use web3::contract::tokens::Tokenize;
-use web3::types::{Address, Log, U256};
+use web3::types::{Log};
 use web3::{Transport, Web3};
 use web3::transports::Http;
 
@@ -420,7 +422,8 @@ fn stage_prepared_cb(result: Vec<Log>, _: Option<Address>) -> bool {
 fn player_joined_cb(result: Vec<Log>, player: Option<Address>) -> bool {
     for i in 0..result.len() {
         let data: &Vec<u8> = &result[i].data.0;
-        let joined: Address = Address::from(data.as_slice());
+        let hash: H256 = H256::from(data.as_slice());
+        let joined: Address = Address::from(hash);
         println!("Player joined: {:?}", joined);
         if player.unwrap() == joined {
             return true;
