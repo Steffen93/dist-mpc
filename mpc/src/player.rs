@@ -116,17 +116,6 @@ fn to_bytes_fixed(vec: &Vec<u8>) -> [u8; 32] {
     arr
 }
 
-
-fn download_r1cs<T>(contract: &ContractWrapper<T>, ipfs: &mut IPFSWrapper) -> CS where 
-    T: Transport
-{
-    let spinner = SpinnerBuilder::new("Querying constraint system hash from Ethereum...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
-    let hash: Vec<u8> = contract.query("getConstraintSystem", ());
-    spinner.message(format!("Downloading constraint system from ipfs (hash: {:?})...", String::from_utf8(hash.clone()).unwrap()));
-    let cs = ipfs.download_cs(String::from_utf8(hash).unwrap().as_str());
-    spinner.close();
-    cs
-}
 fn download_stage<P, S, T>(contract: &ContractWrapper<T>, method: &str, params: P, ipfs: &mut IPFSWrapper) -> S where 
     P: Tokenize,
     S: Transform + Verify + Clone + Encodable + Decodable,
@@ -408,20 +397,7 @@ fn main() {
                 next_stage_filter.await(&poll_interval);
             },
             7 => {
-                let spinner = SpinnerBuilder::new("Protocol finished! Downloading final stages and creating keypair...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
-                let cs: CS = download_r1cs(&contract, &mut ipfs);
-                spinner.message("R1CS complete.".into());
-                stage1 = download_stage(&contract, "getTransformation", (0, (players.len()-1) as u64), &mut ipfs);
-                spinner.message("Stage1 complete.".into());
-                stage2 = download_stage(&contract, "getTransformation", (1, (players.len()-1) as u64), &mut ipfs);
-                spinner.message("Stage2 complete.".into());
-                stage3 = download_stage(&contract, "getTransformation", (2, (players.len()-1) as u64), &mut ipfs);
-                spinner.message("Stage3 complete.".into());
-                // Download r1cs, stage1, stage2, stage3 from ipfs
-                let kp = keypair(&cs, &stage1, &stage2, &stage3);
-                kp.write_to_disk();
-                spinner.close();
-                println!("Wrote keypair to disk (pk, vk). You can exit the program now.");
+                println!("Protocol finished! You can now exit this program and run the verifier to create the keypair.");
                 unsafe {
                     println!("Total amount of bytes written to IPFS by this peer: {:?} B", TOTAL_BYTES);
                 }

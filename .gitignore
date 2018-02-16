@@ -19,3 +19,5 @@ mpc/nizks
 **/build/
 
 mpc/src/rust-web3/
+
+**/node_modules/

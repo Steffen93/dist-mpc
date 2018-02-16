@@ -71,7 +71,7 @@ impl Manager <Http>{
         let default_account = self.init_account(index);
         let _contract;
         if address.is_some() {
-            let contract_address: Address = address.expect("Address is not None!").parse().expect("Error reading the contract address from the command line!");
+            let contract_address: Address = address.unwrap().parse().expect("Error reading the contract address from the command line!");
             let web3_contract = Contract::from_json(
                 self.web3.eth(),
                 contract_address,
