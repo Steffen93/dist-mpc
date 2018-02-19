@@ -2,7 +2,7 @@ use web3::contract::*;
 use web3::contract::tokens::{Tokenize, Detokenize};
 use web3::futures::Future;
 use web3::{Transport};
-use web3::types::{Address, BlockNumber, U256};
+use web3::types::{Address, BlockNumber, H256, U256};
 
 pub struct ContractWrapper<T:Transport>{
     contract: Contract<T>,
@@ -17,7 +17,7 @@ impl <T: Transport> ContractWrapper<T>{
         }
     }
 
-    pub fn call<P: Tokenize>(&self, method: &str, params: P) -> u64 {
+    pub fn call<P: Tokenize>(&self, method: &str, params: P) -> H256 {
         let tokens = params.into_tokens();
         
         let gas = self.contract.estimate_gas(
@@ -34,9 +34,7 @@ impl <T: Transport> ContractWrapper<T>{
                 //FIXME!
                 opt.gas = Some(U256::from(gas.low_u64()*3))
             }))
-        .wait().expect(format!("Error calling contract method {:?}", method).as_str());
-        
-        gas.low_u64()
+        .wait().expect(format!("Error calling contract method {:?}", method).as_str())
     }
 
     pub fn query<P: Tokenize, R: Detokenize>(&self, method: &str, params: P) -> R {

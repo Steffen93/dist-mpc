@@ -6,7 +6,7 @@ use web3::transports::*;
 use web3::types::{Address, U256};
 use web3::{Transport, Web3};
 
-use consts::TOTAL_BYTES;
+use consts::{TOTAL_BYTES, PERFORM_MEASUREMENTS};
 
 use hex;
 use json;
@@ -56,10 +56,11 @@ impl Manager <Http>{
         let bytecode_hex: Vec<u8> = hex::decode(&bytecode[3..len]).expect("Unexpected error!");       //skip leading and trailing special characters like "0x..."
         let cs_ipfs = self.ipfs.upload_file("r1cs");
         println!("Size of constraint system : {:?} B", cs_ipfs.size);
-        unsafe {
-            TOTAL_BYTES += u64::from_str_radix(&cs_ipfs.size, 10).unwrap();
+        if PERFORM_MEASUREMENTS {
+            unsafe {
+                TOTAL_BYTES += u64::from_str_radix(&cs_ipfs.size, 10).unwrap();
+            }
         }
-        
         let contract = Contract::deploy(self.web3.eth(), &abi.dump().into_bytes()).expect("Abi should be well-formed!")
         .options(Options::with(|opt|{opt.gas = Some(U256::from(4000000))}))
         .execute(bytecode_hex, cs_ipfs.hash.into_bytes(), account).expect("execute failed!").wait().expect("Error after wait!");

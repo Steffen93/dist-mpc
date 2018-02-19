@@ -49,8 +49,10 @@ use bincode::rustc_serialize::{decode, encode};
 use rustc_serialize::{Encodable, Decodable};
 
 use ethereum_types::{Address, H256, U256};
+use web3::api::Eth;
 use web3::contract::tokens::Tokenize;
-use web3::types::{Log};
+use web3::futures::Future;
+use web3::types::{Log, TransactionReceipt};
 use web3::{Transport, Web3};
 use web3::transports::Http;
 
@@ -129,7 +131,7 @@ fn download_stage<P, S, T>(contract: &ContractWrapper<T>, method: &str, params: 
     stage
 }
 
-fn transform_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, pubkey: &PublicKey, contract: &ContractWrapper<T>, file_name: &str, ipfs: &mut IPFSWrapper) where
+fn transform_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, pubkey: &PublicKey, contract: &ContractWrapper<T>, file_name: &str, ipfs: &mut IPFSWrapper, eth: &Eth<T>) -> H256 where
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
@@ -140,26 +142,47 @@ fn transform_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, pubkey: &Publ
     spinner.message("Uploading transformation to ipfs...".into());
     let stage_transformed_ipfs = ipfs.upload_object(stage, file_name);
     spinner.message(format!("Uploaded transformed stage to ipfs (size: {} Bytes)", stage_transformed_ipfs.size));
-    unsafe {
-        TOTAL_BYTES += u64::from_str_radix(&stage_transformed_ipfs.size, 10).unwrap();
-    }
+    measure_bytes_written(u64::from_str_radix(&stage_transformed_ipfs.size, 10).unwrap());
     spinner.message(format!("Publishing transformation (hash: {:?})...", stage_transformed_ipfs.hash));
-    contract.call("publishStageResults", stage_transformed_ipfs.hash.into_bytes());
+    let transaction_hash = contract.call("publishStageResults", stage_transformed_ipfs.hash.into_bytes());
     spinner.close();
+    transaction_hash
 }
 
-fn upload_and_init<S, T>(stage: &mut S, contract: &ContractWrapper<T>, file_name: &str, ipfs: &mut IPFSWrapper) where
+fn measure_bytes_written(bytes: u64) {
+    if PERFORM_MEASUREMENTS {
+        unsafe {
+            TOTAL_BYTES += bytes;
+        }
+    }
+}
+
+fn measure_gas_usage<T: Transport>(hash: H256, eth: &Eth<T>) {
+    if PERFORM_MEASUREMENTS {
+        let receipt: Option<TransactionReceipt> = eth.transaction_receipt(hash).wait().expect("Call result error!");
+        if receipt.is_none(){
+            println!("No receipt for transaction hash {:?}", hash);
+        }
+        else {
+            let gas: u64 = receipt.unwrap().gas_used.low_u64();
+            unsafe {
+                TOTAL_GAS += gas;
+            }
+        }
+    }
+}
+
+fn upload_and_init<S, T>(stage: &mut S, contract: &ContractWrapper<T>, file_name: &str, ipfs: &mut IPFSWrapper) -> H256 where
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
     let spinner = SpinnerBuilder::new("Uploading initial stage to ipfs ...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     let stage_ipfs = ipfs.upload_object(stage, file_name);
     spinner.message(format!("Uploaded initial stage to ipfs (size: {} Bytes)", stage_ipfs.size));
-    unsafe {
-        TOTAL_BYTES += u64::from_str_radix(&stage_ipfs.size, 10).unwrap();
-    }
-    contract.call("setInitialStage", stage_ipfs.hash.into_bytes());
+    measure_bytes_written(u64::from_str_radix(&stage_ipfs.size, 10).unwrap());
+    let transaction_hash = contract.call("setInitialStage", stage_ipfs.hash.into_bytes());
     spinner.close();
+    transaction_hash
 }
 
 fn prompt(s: &str) -> String {
@@ -223,12 +246,15 @@ fn verify_all_nizks_valid<T: Transport>(contract: &ContractWrapper<T>, players: 
 }
 
 fn main() {
+    let cs = CS::dummy();
     let host_opt = var(HOST_ENV_KEY);
     let mut host = String::from(DEFAULT_HOST);
     if host_opt.is_ok() {
             host = host_opt.unwrap();
             println!("Using host from environment variable: {:?}", host);
     }
+
+    let mut call_transactions: Vec<H256> = vec![];
 
     let yaml = load_yaml!("../player.yml");
     let matches = App::from_yaml(yaml).get_matches();
@@ -259,7 +285,10 @@ fn main() {
     let is_player: bool = contract.query("isPlayer", ());
     if !is_player {
         println!("Welcome new player! Joining now...");
-        contract.call("join", ());
+        let transaction_hash = contract.call("join", ());
+        if PERFORM_MEASUREMENTS {
+            call_transactions.push(transaction_hash);
+        }
         player_joined_filter.await(&poll_interval);    
     } else {
         println!("You are a player in the protocol already, continuing...");
@@ -298,7 +327,10 @@ fn main() {
             0 => {
                 if is_coordinator(&contract){
                     prompt("You are the coordinator. Press [ENTER] to start the protocol.");
-                    contract.call("start", ());
+                    let transaction_hash = contract.call("start", ());
+                    if PERFORM_MEASUREMENTS {
+                        call_transactions.push(transaction_hash);
+                    }
                 } else {
                     println!("You are not the coordinator. The protocol will start as the coordinator decides.");
                 }
@@ -306,12 +338,18 @@ fn main() {
                 players = get_players(&contract);
             },
             1 => { 
-                contract.call("commit", to_bytes_fixed(&commitment.clone()));
+                let transaction_hash = contract.call("commit", to_bytes_fixed(&commitment.clone()));
+                if PERFORM_MEASUREMENTS {
+                    call_transactions.push(transaction_hash);
+                }
                 next_stage_filter.await(&poll_interval);
                 println!("All players committed. Proceeding to next round.");
             },
             2 => {
-                contract.call("revealCommitment", pubkey_encoded.clone());
+                let transaction_hash = contract.call("revealCommitment", pubkey_encoded.clone());
+                if PERFORM_MEASUREMENTS {
+                    call_transactions.push(transaction_hash);
+                }
                 println!("Public Key revealed! Waiting for other players to reveal...");
                 next_stage_filter.await(&poll_interval);
                 println!("All players revealed their commitments. Proceeding to next round.");
@@ -324,7 +362,10 @@ fn main() {
                 println!("Nizks created.");
                 let nizks_encoded = encode(&nizks, Infinite).unwrap();
                 println!("size of nizks: {} B", nizks_encoded.len());
-                contract.call("publishNizks", nizks_encoded);
+                let transaction_hash = contract.call("publishNizks", nizks_encoded);
+                if PERFORM_MEASUREMENTS {
+                    call_transactions.push(transaction_hash);
+                }
                 next_stage_filter.await(&poll_interval);
                 println!("All nizks published. Checking validity...");
                 verify_all_nizks_valid(&contract, players.clone(), &hash_of_all_commitments);
@@ -333,7 +374,10 @@ fn main() {
                 if is_coordinator(&contract) {
                     println!("Creating stage...");
                     stage1 = Stage1Contents::new(&cs);
-                    upload_and_init(&mut stage1, &contract, "stage1", &mut ipfs);
+                    let transaction_hash = upload_and_init(&mut stage1, &contract, "stage1", &mut ipfs);
+                    if PERFORM_MEASUREMENTS {
+                        call_transactions.push(transaction_hash);
+                    }
                     drop(stage1);
                 }
                 stage_prepared_filter.await(&poll_interval);
@@ -346,7 +390,7 @@ fn main() {
                 } else {
                     stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1_transformed", &mut ipfs);
+                transform_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1_transformed", &mut ipfs, &web3.eth());
                 drop(stage1);
                 next_stage_filter.await(&poll_interval);
             },
@@ -356,7 +400,10 @@ fn main() {
                     stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                     stage2 = Stage2Contents::new(&cs, &stage1);
                     drop(stage1);
-                    upload_and_init(&mut stage2, &contract, "stage2", &mut ipfs);
+                    let transaction_hash = upload_and_init(&mut stage2, &contract, "stage2", &mut ipfs);
+                    if PERFORM_MEASUREMENTS {
+                        call_transactions.push(transaction_hash);
+                    }
                     drop(stage2);
                 }
                 stage_prepared_filter.await(&poll_interval);
@@ -369,7 +416,7 @@ fn main() {
                 } else {
                     stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage2, &privkey, &pubkey, &contract, "stage2_transformed", &mut ipfs);
+                transform_and_upload(&mut stage2, &privkey, &pubkey, &contract, "stage2_transformed", &mut ipfs, &web3.eth());
                 drop(stage2);
                 next_stage_filter.await(&poll_interval);
             },
@@ -379,7 +426,10 @@ fn main() {
                     stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                     stage3 = Stage3Contents::new(&cs, &stage2);
                     drop(stage2); 
-                    upload_and_init(&mut stage3, &contract, "stage3", &mut ipfs);
+                    let transaction_hash = upload_and_init(&mut stage3, &contract, "stage3", &mut ipfs);
+                    if PERFORM_MEASUREMENTS {
+                        call_transactions.push(transaction_hash);
+                    }
                     drop(stage3);
                 }
                 stage_prepared_filter.await(&poll_interval);
@@ -392,14 +442,22 @@ fn main() {
                 } else {
                     stage3 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage3, &privkey, &pubkey, &contract, "stage3_transformed", &mut ipfs);
+                transform_and_upload(&mut stage3, &privkey, &pubkey, &contract, "stage3_transformed", &mut ipfs, &web3.eth());
                 drop(stage3);
                 next_stage_filter.await(&poll_interval);
             },
             7 => {
                 println!("Protocol finished! You can now exit this program and run the verifier to create the keypair.");
-                unsafe {
-                    println!("Total amount of bytes written to IPFS by this peer: {:?} B", TOTAL_BYTES);
+                if PERFORM_MEASUREMENTS {
+                    unsafe {
+                        println!("Total amount of bytes written to IPFS by this peer: {:?} B", TOTAL_BYTES);
+                    }
+                    for hash in call_transactions.clone() {
+                        measure_gas_usage(hash, &web3.eth());
+                    }
+                    unsafe {
+                        println!("Total amount of gas used by this peer (excluding contract creation): {:?}", TOTAL_GAS);
+                    }
                 }
                 stop = true;
             }
