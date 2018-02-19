@@ -66,6 +66,7 @@ contract DistributedMPC is MultiPartyProtocol {
         isNotEmptyBytes(nizks)
         isEmptyBytes(protocol.stageCommit.playerData[msg.sender].nizks)
     {                                   
+        require(nizks.length == 1032);
         protocol.stageCommit.playerData[msg.sender].nizks = nizks;
         if(allNizksReady()){
             nextStage();
