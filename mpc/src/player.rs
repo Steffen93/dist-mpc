@@ -246,7 +246,7 @@ fn verify_all_nizks_valid<T: Transport>(contract: &ContractWrapper<T>, players: 
 }
 
 fn main() {
-    let cs = CS::dummy();
+    //let cs = CS::dummy();
     let host_opt = var(HOST_ENV_KEY);
     let mut host = String::from(DEFAULT_HOST);
     if host_opt.is_ok() {
@@ -269,7 +269,7 @@ fn main() {
     let mut ipfs: IPFSWrapper = IPFSWrapper::new(format!("http://{}", host).as_str(), 5001);
     println!("Successfully initialized.");
     
-    let cs = CS::dummy();
+    let cs = CS::from_file();
     let contract = manager.init_contract(account_index, contract_address);
     let default_account = contract.account(); 
     println!("Your account used: {:?}", default_account);

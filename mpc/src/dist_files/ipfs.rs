@@ -39,7 +39,7 @@ impl IPFSWrapper {
         let mut file = File::create("r1cs").expect("Unexpected Error in IPFS Wrapper!");
         file.write_all(&self.ipfs.cat(hash)).expect("Unexpected Error in IPFS Wrapper!");
         // TODO: replace with cs from file
-        CS::dummy()
+        CS::from_file()
     }
 
     pub fn upload_object<T>(&mut self, obj: &T, name: &str) -> IPFSAddResponse where
