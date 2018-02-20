@@ -1,6 +1,7 @@
 extern crate spinner;
 
 use web3::api::BaseFilter;
+use web3::contract::tokens::Detokenize;
 use web3::futures::Future;
 use web3::types::{Address, Filter, FilterBuilder, Log, H256};
 use web3::{Transport, Web3};
@@ -26,14 +27,15 @@ impl<T: Transport> EventFilterBuilder<T> {
         }
     }
 
-    pub fn create_filter<F>(
+    pub fn create_filter<F, S>(
         &self, 
         topic: &str, 
         msg: String, 
         cb: F, 
         extra_data: Option<Address>
-        ) -> EventFilter<T, F> where
-        F: Fn(Vec<Log>, Option<Address>) -> bool
+        ) -> EventFilter<T, F, S> where
+        F: Fn(Vec<Log>, Option<Address>) -> Option<S>,
+        S: Detokenize
     {
         let mut filter_builder: FilterBuilder = FilterBuilder::default();
         let topic_hash = Keccak256::digest(topic.as_bytes());
@@ -59,24 +61,28 @@ impl<T: Transport> EventFilterBuilder<T> {
     }
 }
 
-pub struct EventFilter<T: Transport, F: Fn(Vec<Log>, Option<Address>) -> bool> {
+pub struct EventFilter<T: Transport, F: Fn(Vec<Log>, Option<Address>) -> Option<S>, S: Detokenize> {
     filter: BaseFilter<T, Log>,
     wait_message: String,
     callback: F,
     parameter: Option<Address>
 }
 
-impl<T, F> EventFilter<T, F> where 
+impl<T, F, S> EventFilter<T, F, S> where 
     T: Transport,
-    F: Fn(Vec<Log>, Option<Address>) -> bool
+    F: Fn(Vec<Log>, Option<Address>) -> Option<S>,
+    S: Detokenize
 {
-    pub fn await(&mut self, duration: &Duration){
+    pub fn await(&mut self, duration: &Duration) -> Option<S> where
+    S: Detokenize
+    {
         let spinner = SpinnerBuilder::new(String::from(&*self.wait_message)).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
         loop {
             let result = self.filter.poll().wait().expect("New Stage Filter should return result!").expect("Polling result should be valid!");
-            if (self.callback)(result, self.parameter) {
+            let cb_result = (self.callback)(result, self.parameter);
+            if cb_result.is_some() {
                 spinner.close();
-                return;
+                return cb_result;
             }
             thread::sleep(*duration);
         }

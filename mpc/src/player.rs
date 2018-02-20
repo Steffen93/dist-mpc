@@ -26,7 +26,7 @@ extern crate serde_derive;
 extern crate snark;
 use snark::*;
 
-mod protocol;
+mod protocol; 
 use self::protocol::*;
 use protocol::{Transform, Verify};
 
@@ -43,14 +43,11 @@ mod consts;
 use self::consts::*;
 
 use spinner::SpinnerBuilder;
-
-use bincode::SizeLimit::Infinite;
-use bincode::rustc_serialize::{decode, encode};
 use rustc_serialize::{Encodable, Decodable};
 
 use ethereum_types::{Address, H256, U256};
 use web3::api::Eth;
-use web3::contract::tokens::Tokenize;
+use web3::contract::tokens::{Tokenize};
 use web3::futures::Future;
 use web3::types::{Log, TransactionReceipt};
 use web3::{Transport, Web3};
@@ -131,7 +128,7 @@ fn download_stage<P, S, T>(contract: &ContractWrapper<T>, method: &str, params: 
     stage
 }
 
-fn transform_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, pubkey: &PublicKey, contract: &ContractWrapper<T>, file_name: &str, ipfs: &mut IPFSWrapper, eth: &Eth<T>) -> H256 where
+fn transform_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, pubkey: &PublicKey, contract: &ContractWrapper<T>, file_name: &str, ipfs: &mut IPFSWrapper) -> H256 where
     S: Transform + Verify + Clone + Encodable + Decodable,
     T: Transport
 {
@@ -139,14 +136,8 @@ fn transform_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, pubkey: &Publ
     let spinner = SpinnerBuilder::new("Transforming stage...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     stage.transform(privkey);
     assert!(stage.verify_transform(prev_stage, pubkey), "Invalid stage transformation!");
-    spinner.message("Uploading transformation to ipfs...".into());
-    let stage_transformed_ipfs = ipfs.upload_object(stage, file_name);
-    spinner.message(format!("Uploaded transformed stage to ipfs (size: {} Bytes)", stage_transformed_ipfs.size));
-    measure_bytes_written(u64::from_str_radix(&stage_transformed_ipfs.size, 10).unwrap());
-    spinner.message(format!("Publishing transformation (hash: {:?})...", stage_transformed_ipfs.hash));
-    let transaction_hash = contract.call("publishStageResults", stage_transformed_ipfs.hash.into_bytes());
     spinner.close();
-    transaction_hash
+    upload_object(stage, contract, "publishStageResults", file_name, ipfs)
 }
 
 fn measure_bytes_written(bytes: u64) {
@@ -172,16 +163,16 @@ fn measure_gas_usage<T: Transport>(hash: H256, eth: &Eth<T>) {
     }
 }
 
-fn upload_and_init<S, T>(stage: &mut S, contract: &ContractWrapper<T>, file_name: &str, ipfs: &mut IPFSWrapper) -> H256 where
-    S: Transform + Verify + Clone + Encodable + Decodable,
+fn upload_object<S, T>(object: &mut S, contract: &ContractWrapper<T>, method_name: &str, file_name: &str, ipfs: &mut IPFSWrapper) -> H256 where
+    S: Encodable,
     T: Transport
 {
-    let spinner = SpinnerBuilder::new("Uploading initial stage to ipfs ...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
-    let stage_ipfs = ipfs.upload_object(stage, file_name);
-    spinner.message(format!("Uploaded initial stage to ipfs (size: {} Bytes)", stage_ipfs.size));
+    let spinner = SpinnerBuilder::new(format!("Uploading {:?} to ipfs ...", file_name)).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
+    let stage_ipfs = ipfs.upload_object(object, file_name);
+    spinner.message(format!("Uploaded {:?} to ipfs (size: {} Bytes)",file_name, stage_ipfs.size));
     measure_bytes_written(u64::from_str_radix(&stage_ipfs.size, 10).unwrap());
-    let transaction_hash = contract.call("setInitialStage", stage_ipfs.hash.into_bytes());
-    spinner.close();
+    let transaction_hash = contract.call(method_name, stage_ipfs.hash.into_bytes());
+    spinner.close();    
     transaction_hash
 }
 
@@ -199,8 +190,8 @@ fn prompt(s: &str) -> String {
     }
 }
 
-fn is_coordinator<T: Transport>(contract: &ContractWrapper<T>) -> bool {
-    contract.query("isCoordinator", ())
+fn is_coordinator<T: Transport>(contract: &ContractWrapper<T>, account: Address) -> bool {
+    account == contract.query("players", 0)
 }
 
 fn get_players<T: Transport>(contract: &ContractWrapper<T>) -> Vec<Address> {
@@ -234,13 +225,13 @@ fn fetch_all_commitments<T: Transport>(contract: &ContractWrapper<T>, players: V
     all_commitments
 }
 
-fn verify_all_nizks_valid<T: Transport>(contract: &ContractWrapper<T>, players: Vec<Address>, hash_of_all_commitments: &Digest512) {
+fn verify_all_nizks_valid<T: Transport>(contract: &ContractWrapper<T>, players: Vec<Address>, hash_of_all_commitments: &Digest512, ipfs: &mut IPFSWrapper) {
     for i in 0..players.len() {
         let player_index: u64 = i as u64; 
         let nizks_bin: Vec<u8> = contract.query("getNizks", player_index);
         let pubkey_bin: Vec<u8> = contract.query("getPublicKey", player_index);
-        let nizks: PublicKeyNizks = decode(&nizks_bin).expect("Should be Nizks object!");
-        let pubkey: PublicKey = decode(&pubkey_bin).expect("Should be PublicKey object!");
+        let nizks: PublicKeyNizks = ipfs.download_object(String::from_utf8(nizks_bin).expect("Should be valid IPFS hash!").as_str());
+        let pubkey: PublicKey = ipfs.download_object(String::from_utf8(pubkey_bin).expect("Should be valid IPFS hash!").as_str());
         assert!(nizks.is_valid(&pubkey, hash_of_all_commitments), format!("Nizks was invalid for player {}! Aborting.", i));
     }
 }
@@ -279,22 +270,21 @@ fn main() {
     let poll_interval = Duration::new(1, 0);
     let mut player_joined_filter = filter_builder.create_filter("PlayerJoined(address)", "Waiting for player joining...".into(), player_joined_cb, Some(default_account));
     let mut next_stage_filter = filter_builder.create_filter("NextStage(uint256)", "Waiting for next stage to start...".into(), next_stage_cb, None);
-    let mut stage_prepared_filter = filter_builder.create_filter("StagePrepared(uint256)","Waiting for stage to be prepared by coordinator...".into(), stage_prepared_cb, None);
+    let mut stage_prepared_filter = filter_builder.create_filter("StagePrepared(uint256,bytes)","Waiting for stage to be prepared by coordinator...".into(), stage_prepared_cb, None);
     
     // IF CURRENT ACCOUNT IS NOT A PLAYER, JOIN!
-    let is_player: bool = contract.query("isPlayer", ());
-    if !is_player {
+    let mut players: Vec<Address> = get_players(&contract);
+    if !players.contains(&default_account) {
         println!("Welcome new player! Joining now...");
         let transaction_hash = contract.call("join", ());
         if PERFORM_MEASUREMENTS {
             call_transactions.push(transaction_hash);
         }
         player_joined_filter.await(&poll_interval);    
+        players = get_players(&contract);
     } else {
         println!("You are a player in the protocol already, continuing...");
     }
-
-    let mut players: Vec<Address> = get_players(&contract);
     let previous_player: Option<Address> = get_previous_player(players.clone(), default_account);
     let prev_player_str: String;
     if previous_player.is_some() {
@@ -303,19 +293,13 @@ fn main() {
         prev_player_str = "nobody".into();   
     }
     let mut stage_result_published_filter = filter_builder.create_filter("StageResultPublished(address,bytes)", format!("Waiting for {:?} to publish results...", prev_player_str), stage_result_cb, previous_player); 
-    // IF COORDINATOR: then the R1CS will have been uploaded to ipfs during deployment
-    // FIXME cs = CS::from_file();
-    //cs = CS::dummy();
     let mut chacha_rng = rand::chacha::ChaChaRng::from_seed(&get_entropy());
 
-    //TODO: do all of this stuff later when start() has been called
     let privkey = PrivateKey::new(&mut chacha_rng);
-    let pubkey = privkey.pubkey(&mut chacha_rng);
-    let pubkey_encoded: Vec<u8> = encode(&pubkey, Infinite).unwrap();
+    let mut pubkey = privkey.pubkey(&mut chacha_rng);
     let commitment = pubkey.hash();
 
     let mut stop = false;
-    //end of Only Coordinator!
     let mut stage1: Stage1Contents;
     let mut stage2: Stage2Contents;
     let mut stage3: Stage3Contents;
@@ -325,9 +309,9 @@ fn main() {
     while !stop {
         match get_current_state(&contract) {
             0 => {
-                if is_coordinator(&contract){
+                if is_coordinator(&contract, default_account){
                     prompt("You are the coordinator. Press [ENTER] to start the protocol.");
-                    let transaction_hash = contract.call("start", ());
+                    let transaction_hash = contract.call("commit", to_bytes_fixed(&commitment.clone()));
                     if PERFORM_MEASUREMENTS {
                         call_transactions.push(transaction_hash);
                     }
@@ -337,16 +321,18 @@ fn main() {
                 next_stage_filter.await(&poll_interval);
                 players = get_players(&contract);
             },
-            1 => { 
-                let transaction_hash = contract.call("commit", to_bytes_fixed(&commitment.clone()));
-                if PERFORM_MEASUREMENTS {
-                    call_transactions.push(transaction_hash);
+            1 => {
+                if !is_coordinator(&contract, default_account){
+                    let transaction_hash = contract.call("commit", to_bytes_fixed(&commitment.clone()));
+                    if PERFORM_MEASUREMENTS {
+                        call_transactions.push(transaction_hash);
+                    }
                 }
                 next_stage_filter.await(&poll_interval);
                 println!("All players committed. Proceeding to next round.");
             },
             2 => {
-                let transaction_hash = contract.call("revealCommitment", pubkey_encoded.clone());
+                let transaction_hash = upload_object(&mut pubkey, &contract, "revealCommitment", "publicKey", &mut ipfs);
                 if PERFORM_MEASUREMENTS {
                     call_transactions.push(transaction_hash);
                 }
@@ -358,23 +344,21 @@ fn main() {
                 let mut all_commitments = fetch_all_commitments(&contract, players.clone());
                 let hash_of_all_commitments = Digest512::from(&all_commitments).unwrap();
                 println!("Creating nizks...");
-                let nizks = pubkey.nizks(&mut chacha_rng, &privkey, &hash_of_all_commitments);
+                let mut nizks = pubkey.nizks(&mut chacha_rng, &privkey, &hash_of_all_commitments);
                 println!("Nizks created.");
-                let nizks_encoded = encode(&nizks, Infinite).unwrap();
-                println!("size of nizks: {} B", nizks_encoded.len());
-                let transaction_hash = contract.call("publishNizks", nizks_encoded);
+                let transaction_hash = upload_object(&mut nizks, &contract, "publishNizks", "nizks", &mut ipfs);
                 if PERFORM_MEASUREMENTS {
                     call_transactions.push(transaction_hash);
                 }
                 next_stage_filter.await(&poll_interval);
                 println!("All nizks published. Checking validity...");
-                verify_all_nizks_valid(&contract, players.clone(), &hash_of_all_commitments);
+                verify_all_nizks_valid(&contract, players.clone(), &hash_of_all_commitments, &mut ipfs);
             },
             4 => {
-                if is_coordinator(&contract) {
+                if is_coordinator(&contract, default_account) {
                     println!("Creating stage...");
                     stage1 = Stage1Contents::new(&cs);
-                    let transaction_hash = upload_and_init(&mut stage1, &contract, "stage1", &mut ipfs);
+                    let transaction_hash = upload_object(&mut stage1, &contract, "setInitialStage", "stage1", &mut ipfs);
                     if PERFORM_MEASUREMENTS {
                         call_transactions.push(transaction_hash);
                     }
@@ -390,17 +374,17 @@ fn main() {
                 } else {
                     stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1_transformed", &mut ipfs, &web3.eth());
+                transform_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1_transformed", &mut ipfs);
                 drop(stage1);
                 next_stage_filter.await(&poll_interval);
             },
             5 => {
-                if is_coordinator(&contract) {
+                if is_coordinator(&contract, default_account) {
                     println!("Creating stage...");
                     stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                     stage2 = Stage2Contents::new(&cs, &stage1);
                     drop(stage1);
-                    let transaction_hash = upload_and_init(&mut stage2, &contract, "stage2", &mut ipfs);
+                    let transaction_hash = upload_object(&mut stage2, &contract, "setInitialStage", "stage2", &mut ipfs);
                     if PERFORM_MEASUREMENTS {
                         call_transactions.push(transaction_hash);
                     }
@@ -416,17 +400,17 @@ fn main() {
                 } else {
                     stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage2, &privkey, &pubkey, &contract, "stage2_transformed", &mut ipfs, &web3.eth());
+                transform_and_upload(&mut stage2, &privkey, &pubkey, &contract, "stage2_transformed", &mut ipfs);
                 drop(stage2);
                 next_stage_filter.await(&poll_interval);
             },
             6 => {
-                if is_coordinator(&contract) {
+                if is_coordinator(&contract, default_account) {
                     println!("Creating stage...");
                     stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                     stage3 = Stage3Contents::new(&cs, &stage2);
                     drop(stage2); 
-                    let transaction_hash = upload_and_init(&mut stage3, &contract, "stage3", &mut ipfs);
+                    let transaction_hash = upload_object(&mut stage3, &contract, "setInitialStage", "stage3", &mut ipfs);
                     if PERFORM_MEASUREMENTS {
                         call_transactions.push(transaction_hash);
                     }
@@ -442,7 +426,7 @@ fn main() {
                 } else {
                     stage3 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                 }
-                transform_and_upload(&mut stage3, &privkey, &pubkey, &contract, "stage3_transformed", &mut ipfs, &web3.eth());
+                transform_and_upload(&mut stage3, &privkey, &pubkey, &contract, "stage3_transformed", &mut ipfs);
                 drop(stage3);
                 next_stage_filter.await(&poll_interval);
             },
@@ -472,48 +456,48 @@ fn main() {
  *  CALLBACKS FOR HANDLING FILTER RESULTS 
  */
 
-fn next_stage_cb(result: Vec<Log>, _: Option<Address>) -> bool {
+fn next_stage_cb(result: Vec<Log>, _: Option<Address>) -> Option<bool> {
     for i in 0..result.len() {
         let data: &Vec<u8> = &result[i].data.0;
         println!("New Stage: {:?}", U256::from(data.as_slice()).low_u64());
-        return true;
+        return Some(true);
     }
-    false
+    None
 }
 
-fn stage_prepared_cb(result: Vec<Log>, _: Option<Address>) -> bool {
+fn stage_prepared_cb(result: Vec<Log>, _: Option<Address>) -> Option<Vec<u8>> {
     for i in 0..result.len() {
-        let data: &Vec<u8> = &result[i].data.0;
-        println!("Stage {} prepared", U256::from(data.as_slice()).low_u64());
-        return true;
+        let data: &[u8] = &result[i].data.0[0..32];
+        println!("Stage {} prepared", U256::from(data).low_u64());
+        return Some(vec![]);
     }
-    false
+    None
 }
 
-fn player_joined_cb(result: Vec<Log>, player: Option<Address>) -> bool {
+fn player_joined_cb(result: Vec<Log>, player: Option<Address>) -> Option<bool> {
     for i in 0..result.len() {
         let data: &Vec<u8> = &result[i].data.0;
         let hash: H256 = H256::from(data.as_slice());
         let joined: Address = Address::from(hash);
         println!("Player joined: {:?}", joined);
         if player.unwrap() == joined {
-            return true;
+            return Some(true);
         }
     }
-    false
+    None
 }
 
-fn stage_result_cb(result: Vec<Log>, wanted: Option<Address>) -> bool {
+fn stage_result_cb(result: Vec<Log>, wanted: Option<Address>) -> Option<Vec<u8>> {
     for i in 0..result.len() {
         let data: &[u8] = &result[i].data.0[0..32];
         let hash: H256 = H256::from(data);
         let publisher: Address = Address::from(hash);
         println!("Player published results: {:?}", publisher);
         if publisher == wanted.unwrap() {
-            return true;
+            return Some(vec![]);
         }
     }
-    false
+    None
 }
 
 /*

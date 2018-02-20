@@ -35,6 +35,12 @@ impl IPFSWrapper {
         decode(&self.ipfs.cat(hash)).expect("Should be decodable to a stage object!")
     }
 
+    pub fn download_object<S>(&mut self, hash: &str) -> S where
+    S: Decodable
+    {
+        decode(&self.ipfs.cat(hash)).expect("Should be decodable to an object!")
+    }
+
     pub fn download_cs(&mut self, hash: &str) -> CS {
         let mut file = File::create("r1cs").expect("Unexpected Error in IPFS Wrapper!");
         file.write_all(&self.ipfs.cat(hash)).expect("Unexpected Error in IPFS Wrapper!");
