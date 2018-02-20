@@ -15,6 +15,7 @@ Cargo.lock
 **/r1cs_*
 mpc/stage*
 mpc/nizks
+mpc/publicKey
 
 **/build/
 
