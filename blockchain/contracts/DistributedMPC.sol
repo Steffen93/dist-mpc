@@ -71,7 +71,7 @@ contract DistributedMPC is MultiPartyProtocol {
         }
     }
 
-    function setInitialStage(bytes stage) 
+    function setInitialStage(bytes stage, bytes stageTransformed) 
         public
         isSenderCoordinator
         isInStageTransformationState
@@ -81,6 +81,7 @@ contract DistributedMPC is MultiPartyProtocol {
         protocol.initialStages[stateIndex] = stage;
         protocol.latestTransformation = stage;
         StagePrepared(uint(currentState), stage);
+        publishStageResults(stageTransformed);
     }
 
     function publishStageResults(bytes stageTransformed)

@@ -137,6 +137,24 @@
     },
     {
       "constant": false,
+      "inputs": [
+        {
+          "name": "stage",
+          "type": "bytes"
+        },
+        {
+          "name": "stageTransformed",
+          "type": "bytes"
+        }
+      ],
+      "name": "setInitialStage",
+      "outputs": [],
+      "payable": false,
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "constant": false,
       "inputs": [],
       "name": "join",
       "outputs": [],
@@ -167,20 +185,6 @@
         }
       ],
       "name": "revealCommitment",
-      "outputs": [],
-      "payable": false,
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "constant": false,
-      "inputs": [
-        {
-          "name": "stage",
-          "type": "bytes"
-        }
-      ],
-      "name": "setInitialStage",
       "outputs": [],
       "payable": false,
       "stateMutability": "nonpayable",
