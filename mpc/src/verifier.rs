@@ -101,15 +101,15 @@ fn main() {
         let player: Address = contract.query("players", i);
         let commitment: [u8; 32] = contract.query("getCommitment", player);
         commitments.push(commitment);
-        let publickey: Vec<u8> = contract.query("getPublicKey", i);
-        let nizks: Vec<u8> = contract.query("getNizks", i);
+        let publickey_hash: Vec<u8> = contract.query("getPublicKey", i);
+        let nizks_hash: Vec<u8> = contract.query("getNizks", i);
         let stage1_hash: Vec<u8> = contract.query("getTransformation", (0, i));
         let stage2_hash: Vec<u8> = contract.query("getTransformation", (1, i));
         let stage3_hash: Vec<u8> = contract.query("getTransformation", (2, i));
         players.push(PlayerResult {
             player: player,
-            pubkey: decode(&publickey).expect("Error decoding public key to object"),
-            nizks: decode(&nizks).expect("Error decoding nizks to object"),
+            pubkey: ipfs.download_object(String::from_utf8(publickey_hash).expect("Error decoding public key to object").as_str()),
+            nizks: ipfs.download_object(String::from_utf8(nizks_hash).expect("Error decoding nizks to object").as_str()),
             stage1: ipfs.download_stage(String::from_utf8(stage1_hash).expect("Error decoding stage 1 to object").as_str()),
             stage2: ipfs.download_stage(String::from_utf8(stage2_hash).expect("Error decoding stage 2 to object").as_str()),
             stage3: ipfs.download_stage(String::from_utf8(stage3_hash).expect("Error decoding stage 3 to object").as_str())

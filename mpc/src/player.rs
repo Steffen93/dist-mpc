@@ -140,6 +140,23 @@ fn transform_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, pubkey: &Publ
     upload_object(stage, contract, "publishStageResults", file_name, ipfs)
 }
 
+fn init_stage_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, pubkey: &PublicKey, contract: &ContractWrapper<T>, file_name: &str, ipfs: &mut IPFSWrapper) -> H256 where
+    S: Transform + Verify + Clone + Encodable + Decodable,
+    T: Transport
+{
+    let prev_stage = &stage.clone();
+    let spinner = SpinnerBuilder::new("Transforming stage...".into()).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
+    stage.transform(privkey);
+    assert!(stage.verify_transform(prev_stage, pubkey), "Invalid stage transformation!");
+    spinner.message("Uploading stage and transformation to IPFS...".into());
+    let prev_stage_ipfs = ipfs.upload_object(prev_stage, file_name);
+    let stage_ipfs = ipfs.upload_object(stage, format!("{}_transformed", file_name).as_str());
+    spinner.message("Publishing stage and transformation hashes to Ethereum...".into());
+    let transaction_hash = contract.call("setInitialStage", (prev_stage_ipfs.hash.into_bytes(), stage_ipfs.hash.into_bytes()));
+    spinner.close();
+    transaction_hash
+}
+
 fn measure_bytes_written(bytes: u64) {
     if PERFORM_MEASUREMENTS {
         unsafe {
@@ -270,11 +287,12 @@ fn main() {
     let poll_interval = Duration::new(1, 0);
     let mut player_joined_filter = filter_builder.create_filter("PlayerJoined(address)", "Waiting for player joining...".into(), player_joined_cb, Some(default_account));
     let mut next_stage_filter = filter_builder.create_filter("NextStage(uint256)", "Waiting for next stage to start...".into(), next_stage_cb, None);
-    let mut stage_prepared_filter = filter_builder.create_filter("StagePrepared(uint256,bytes)","Waiting for stage to be prepared by coordinator...".into(), stage_prepared_cb, None);
     
     // IF CURRENT ACCOUNT IS NOT A PLAYER, JOIN!
     let mut players: Vec<Address> = get_players(&contract);
-    if !players.contains(&default_account) {
+    if players.contains(&default_account) {
+        println!("You are a player in the protocol already, continuing...");
+    } else {
         println!("Welcome new player! Joining now...");
         let transaction_hash = contract.call("join", ());
         if PERFORM_MEASUREMENTS {
@@ -282,8 +300,6 @@ fn main() {
         }
         player_joined_filter.await(&poll_interval);    
         players = get_players(&contract);
-    } else {
-        println!("You are a player in the protocol already, continuing...");
     }
     let previous_player: Option<Address> = get_previous_player(players.clone(), default_account);
     let prev_player_str: String;
@@ -358,24 +374,18 @@ fn main() {
                 if is_coordinator(&contract, default_account) {
                     println!("Creating stage...");
                     stage1 = Stage1Contents::new(&cs);
-                    let transaction_hash = upload_object(&mut stage1, &contract, "setInitialStage", "stage1", &mut ipfs);
+                    let transaction_hash = init_stage_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1", &mut ipfs);
                     if PERFORM_MEASUREMENTS {
                         call_transactions.push(transaction_hash);
                     }
                     drop(stage1);
-                }
-                stage_prepared_filter.await(&poll_interval);
-                if previous_player.is_some() {
-                    stage_result_published_filter.await(&poll_interval);                    
-                }
-                let mut stage1: Stage1Contents;
-                if previous_player.is_none(){
-                    stage1 = download_stage(&contract, "getInitialStage", 0, &mut ipfs);
                 } else {
-                    stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
+                    let stage_hash = stage_result_published_filter.await(&poll_interval).unwrap();
+                    let mut stage1: Stage1Contents;
+                    stage1 = ipfs.download_stage(String::from_utf8(stage_hash).expect("Should be valid IPFS hash").as_str());
+                    transform_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1_transformed", &mut ipfs);
+                    drop(stage1);
                 }
-                transform_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1_transformed", &mut ipfs);
-                drop(stage1);
                 next_stage_filter.await(&poll_interval);
             },
             5 => {
@@ -384,24 +394,18 @@ fn main() {
                     stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                     stage2 = Stage2Contents::new(&cs, &stage1);
                     drop(stage1);
-                    let transaction_hash = upload_object(&mut stage2, &contract, "setInitialStage", "stage2", &mut ipfs);
+                    let transaction_hash = init_stage_and_upload(&mut stage2, &privkey, &pubkey, &contract, "stage2", &mut ipfs);
                     if PERFORM_MEASUREMENTS {
                         call_transactions.push(transaction_hash);
                     }
                     drop(stage2);
-                }
-                stage_prepared_filter.await(&poll_interval);
-                if previous_player.is_some() {
-                    stage_result_published_filter.await(&poll_interval);                    
-                }
-                let mut stage2: Stage2Contents;
-                if previous_player.is_none(){
-                    stage2 = download_stage(&contract, "getInitialStage", 1, &mut ipfs);
                 } else {
-                    stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
+                    let stage_hash = stage_result_published_filter.await(&poll_interval).unwrap();
+                    let mut stage2: Stage2Contents;
+                    stage2 = ipfs.download_stage(String::from_utf8(stage_hash).expect("Should be valid IPFS hash").as_str());
+                    transform_and_upload(&mut stage2, &privkey, &pubkey, &contract, "stage2_transformed", &mut ipfs);
+                    drop(stage2);
                 }
-                transform_and_upload(&mut stage2, &privkey, &pubkey, &contract, "stage2_transformed", &mut ipfs);
-                drop(stage2);
                 next_stage_filter.await(&poll_interval);
             },
             6 => {
@@ -410,24 +414,18 @@ fn main() {
                     stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                     stage3 = Stage3Contents::new(&cs, &stage2);
                     drop(stage2); 
-                    let transaction_hash = upload_object(&mut stage3, &contract, "setInitialStage", "stage3", &mut ipfs);
+                    let transaction_hash = init_stage_and_upload(&mut stage3, &privkey, &pubkey, &contract, "stage3", &mut ipfs);
                     if PERFORM_MEASUREMENTS {
                         call_transactions.push(transaction_hash);
                     }
                     drop(stage3);
-                }
-                stage_prepared_filter.await(&poll_interval);
-                if previous_player.is_some() {
-                    stage_result_published_filter.await(&poll_interval);                    
-                }
-                let mut stage3: Stage3Contents;
-                if previous_player.is_none(){
-                    stage3 = download_stage(&contract, "getInitialStage", 2, &mut ipfs);
                 } else {
-                    stage3 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
+                    let stage_hash = stage_result_published_filter.await(&poll_interval).unwrap();
+                    let mut stage3: Stage3Contents;
+                    stage3 = ipfs.download_stage(String::from_utf8(stage_hash).expect("Should be valid IPFS hash").as_str());
+                    transform_and_upload(&mut stage3, &privkey, &pubkey, &contract, "stage3_transformed", &mut ipfs);
+                    drop(stage3);
                 }
-                transform_and_upload(&mut stage3, &privkey, &pubkey, &contract, "stage3_transformed", &mut ipfs);
-                drop(stage3);
                 next_stage_filter.await(&poll_interval);
             },
             7 => {
@@ -444,7 +442,7 @@ fn main() {
                     }
                 }
                 stop = true;
-            }
+            },
             _ => {
                 stop = true;
             }
@@ -455,24 +453,6 @@ fn main() {
 /*
  *  CALLBACKS FOR HANDLING FILTER RESULTS 
  */
-
-fn next_stage_cb(result: Vec<Log>, _: Option<Address>) -> Option<bool> {
-    for i in 0..result.len() {
-        let data: &Vec<u8> = &result[i].data.0;
-        println!("New Stage: {:?}", U256::from(data.as_slice()).low_u64());
-        return Some(true);
-    }
-    None
-}
-
-fn stage_prepared_cb(result: Vec<Log>, _: Option<Address>) -> Option<Vec<u8>> {
-    for i in 0..result.len() {
-        let data: &[u8] = &result[i].data.0[0..32];
-        println!("Stage {} prepared", U256::from(data).low_u64());
-        return Some(vec![]);
-    }
-    None
-}
 
 fn player_joined_cb(result: Vec<Log>, player: Option<Address>) -> Option<bool> {
     for i in 0..result.len() {
@@ -487,14 +467,24 @@ fn player_joined_cb(result: Vec<Log>, player: Option<Address>) -> Option<bool> {
     None
 }
 
+fn next_stage_cb(result: Vec<Log>, _: Option<Address>) -> Option<bool> {
+    for i in 0..result.len() {
+        let data: &Vec<u8> = &result[i].data.0;
+        println!("New Stage: {:?}", U256::from(data.as_slice()).low_u64());
+        return Some(true);
+    }
+    None
+}
+
 fn stage_result_cb(result: Vec<Log>, wanted: Option<Address>) -> Option<Vec<u8>> {
     for i in 0..result.len() {
-        let data: &[u8] = &result[i].data.0[0..32];
-        let hash: H256 = H256::from(data);
+        let hash_bytes: &[u8] = &result[i].data.0[0..32];
+        let stage_hash: &[u8] = &result[i].data.0[96..142];
+        let hash: H256 = H256::from(hash_bytes);
         let publisher: Address = Address::from(hash);
         println!("Player published results: {:?}", publisher);
         if publisher == wanted.unwrap() {
-            return Some(vec![]);
+            return Some(stage_hash.to_vec());
         }
     }
     None
