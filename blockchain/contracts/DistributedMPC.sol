@@ -6,39 +6,40 @@ contract DistributedMPC is MultiPartyProtocol {
     function DistributedMPC(bytes r1cs) 
         public
         isNotEmptyBytes(r1cs) 
-        MultiPartyProtocol(r1cs) 
+        MultiPartyProtocol(r1cs)
     {
         join();
     }
     
     function join() 
         public 
-        isInState(State.Join) 
+        isInState(State.Init) 
         isNewPlayer 
     {
         players.push(msg.sender);
         PlayerJoined(msg.sender);
     }
-    
-    function start() 
-        public 
-        isInState(State.Join) 
-        isSenderCoordinator 
-        returns (bool)
-    {
-        return nextStage();
-    }
 
     function commit(bytes32 commitment) 
         public
-        isInState(State.Commit) 
-        isSenderPlayer 
+        isSenderPlayer
         isNotEmptyBytes32(commitment)
         isEmptyBytes32(protocol.stageCommit.playerData[msg.sender].commitment)
     {
+        require(currentState == State.Commit || currentState == State.Init);
+        if(protocol.stageCommit.playerData[players[0]].commitment.length == 0){
+            //We require coordinator to commit first. That implicitly starts the protocol.
+            require(msg.sender == players[0]);
+        }
+
         protocol.stageCommit.playerData[msg.sender].initialized = true;
         protocol.stageCommit.playerData[msg.sender].commitment = commitment;
         PlayerCommitted(msg.sender, commitment);
+        
+        if(msg.sender == players[0]){
+            nextStage();
+        }
+        
         if(allCommitmentsReady()){
             nextStage();
         }
@@ -51,8 +52,6 @@ contract DistributedMPC is MultiPartyProtocol {
         isNotEmptyBytes(publicKey)
         isEmptyBytes(protocol.stageCommit.playerData[msg.sender].publicKey)
     {
-        require(publicKey.length == 2069);
-        require(keccak256(publicKey) == protocol.stageCommit.playerData[msg.sender].commitment);
         protocol.stageCommit.playerData[msg.sender].publicKey = publicKey;
         if(allCommitmentsRevealed()){
             nextStage();
@@ -65,8 +64,7 @@ contract DistributedMPC is MultiPartyProtocol {
         isSenderPlayer
         isNotEmptyBytes(nizks)
         isEmptyBytes(protocol.stageCommit.playerData[msg.sender].nizks)
-    {                                   
-        require(nizks.length == 1032);
+    {                                 
         protocol.stageCommit.playerData[msg.sender].nizks = nizks;
         if(allNizksReady()){
             nextStage();
@@ -82,7 +80,7 @@ contract DistributedMPC is MultiPartyProtocol {
         require(isBytesEmpty(protocol.initialStages[stateIndex]));
         protocol.initialStages[stateIndex] = stage;
         protocol.latestTransformation = stage;
-        StagePrepared(uint(currentState));
+        StagePrepared(uint(currentState), stage);
     }
 
     function publishStageResults(bytes stageTransformed)
@@ -169,26 +167,5 @@ contract DistributedMPC is MultiPartyProtocol {
     {
         require(playerIndex < players.length);
         return protocol.stageCommit.playerData[players[playerIndex]].publicKey;
-    }
-
-    function isCoordinator()
-        constant
-        public
-        returns (bool) 
-    {
-        return msg.sender == players[0];
-    }
-
-    function isPlayer()
-        constant
-        public
-        returns (bool)
-    {
-        for(uint i = 0; i < players.length; i++){
-            if(players[i] == msg.sender){
-                return true;
-            }
-        }
-        return false;
     }
 }
