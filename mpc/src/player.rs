@@ -157,14 +157,6 @@ fn init_stage_and_upload<S, T>(stage: &mut S, privkey: &PrivateKey, pubkey: &Pub
     transaction_hash
 }
 
-fn measure_bytes_written(bytes: u64) {
-    if PERFORM_MEASUREMENTS {
-        unsafe {
-            TOTAL_BYTES += bytes;
-        }
-    }
-}
-
 fn measure_gas_usage<T: Transport>(hash: H256, eth: &Eth<T>) {
     if PERFORM_MEASUREMENTS {
         let receipt: Option<TransactionReceipt> = eth.transaction_receipt(hash).wait().expect("Call result error!");
@@ -186,8 +178,6 @@ fn upload_object<S, T>(object: &mut S, contract: &ContractWrapper<T>, method_nam
 {
     let spinner = SpinnerBuilder::new(format!("Uploading {:?} to ipfs ...", file_name)).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
     let stage_ipfs = ipfs.upload_object(object, file_name);
-    spinner.message(format!("Uploaded {:?} to ipfs (size: {} Bytes)",file_name, stage_ipfs.size));
-    measure_bytes_written(u64::from_str_radix(&stage_ipfs.size, 10).unwrap());
     let transaction_hash = contract.call(method_name, stage_ipfs.hash.into_bytes());
     spinner.close();    
     transaction_hash
@@ -383,7 +373,10 @@ fn main() {
                     let stage_hash = stage_result_published_filter.await(&poll_interval).unwrap();
                     let mut stage1: Stage1Contents;
                     stage1 = ipfs.download_stage(String::from_utf8(stage_hash).expect("Should be valid IPFS hash").as_str());
-                    transform_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1_transformed", &mut ipfs);
+                    let transaction_hash = transform_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1_transformed", &mut ipfs);
+                    if PERFORM_MEASUREMENTS {
+                        call_transactions.push(transaction_hash);
+                    }
                     drop(stage1);
                 }
                 next_stage_filter.await(&poll_interval);
@@ -403,7 +396,10 @@ fn main() {
                     let stage_hash = stage_result_published_filter.await(&poll_interval).unwrap();
                     let mut stage2: Stage2Contents;
                     stage2 = ipfs.download_stage(String::from_utf8(stage_hash).expect("Should be valid IPFS hash").as_str());
-                    transform_and_upload(&mut stage2, &privkey, &pubkey, &contract, "stage2_transformed", &mut ipfs);
+                    let transaction_hash = transform_and_upload(&mut stage2, &privkey, &pubkey, &contract, "stage2_transformed", &mut ipfs);
+                    if PERFORM_MEASUREMENTS {
+                        call_transactions.push(transaction_hash);
+                    }
                     drop(stage2);
                 }
                 next_stage_filter.await(&poll_interval);
@@ -423,7 +419,10 @@ fn main() {
                     let stage_hash = stage_result_published_filter.await(&poll_interval).unwrap();
                     let mut stage3: Stage3Contents;
                     stage3 = ipfs.download_stage(String::from_utf8(stage_hash).expect("Should be valid IPFS hash").as_str());
-                    transform_and_upload(&mut stage3, &privkey, &pubkey, &contract, "stage3_transformed", &mut ipfs);
+                    let transaction_hash = transform_and_upload(&mut stage3, &privkey, &pubkey, &contract, "stage3_transformed", &mut ipfs);
+                    if PERFORM_MEASUREMENTS {
+                        call_transactions.push(transaction_hash);
+                    }
                     drop(stage3);
                 }
                 next_stage_filter.await(&poll_interval);

@@ -7,6 +7,7 @@ use serde_json;
 use snark::CS;
 use std::fs::File;
 use std::io::Write;
+use consts::*;
 
 pub struct IPFSWrapper {
     ipfs: IPFS
@@ -53,11 +54,24 @@ impl IPFSWrapper {
         let mut file = File::create(name).expect("Should work to create file.");
         encode_into(obj, &mut file, Infinite).expect("Unexpected Error in IPFS Wrapper!");
         let result = self.ipfs.add(name);
-        serde_json::from_slice(result.as_slice()).expect("Unexpected Error in IPFS Wrapper!")
+        let json_result: IPFSAddResponse = serde_json::from_slice(result.as_slice()).expect("Unexpected Error in IPFS Wrapper!");
+        measure_bytes_written(u64::from_str_radix(&json_result.size, 10).unwrap());
+        json_result
     }
 
     pub fn upload_file(&mut self, path: &str) -> IPFSAddResponse {
         let result = self.ipfs.add(path);
-        serde_json::from_slice(result.as_slice()).expect("Unexpected Error in IPFS Wrapper!")
+        let json_result: IPFSAddResponse = serde_json::from_slice(result.as_slice()).expect("Unexpected Error in IPFS Wrapper!");
+        measure_bytes_written(u64::from_str_radix(&json_result.size, 10).unwrap());
+        json_result
+    }
+}
+
+
+fn measure_bytes_written(bytes: u64) {
+    if PERFORM_MEASUREMENTS {
+        unsafe {
+            TOTAL_BYTES += bytes;
+        }
     }
 }
