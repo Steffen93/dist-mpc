@@ -6,12 +6,14 @@ use web3::transports::*;
 use web3::types::{Address, U256};
 use web3::{Transport, Web3};
 
-use consts::{TOTAL_BYTES, PERFORM_MEASUREMENTS};
+use consts::*;
 
 use hex;
 use json;
 use std::fs::File;
 use std::io::Read;
+use std::time::Instant;
+use time::Duration as MDuration;
 use serde_json::value::Value; 
 
 pub struct Manager<T: Transport>{
@@ -61,10 +63,20 @@ impl Manager <Http>{
                 TOTAL_BYTES += u64::from_str_radix(&cs_ipfs.size, 10).unwrap();
             }
         }
+        let wait_start = Instant::now();
         let contract = Contract::deploy(self.web3.eth(), &abi.dump().into_bytes()).expect("Abi should be well-formed!")
         .options(Options::with(|opt|{opt.gas = Some(U256::from(4000000))}))
         .execute(bytecode_hex, cs_ipfs.hash.into_bytes(), account).expect("execute failed!").wait().expect("Error after wait!");
-        
+        if PERFORM_MEASUREMENTS {
+            let duration = MDuration::from_std(wait_start.elapsed());
+            if duration.is_ok() {
+                unsafe {
+                    FILTER_OVERHEAD_MS += duration.unwrap().num_milliseconds();
+                }
+            } else {
+                println!("Error in time measurement: Overflow in duration");
+            }
+        }
         contract
     }
 

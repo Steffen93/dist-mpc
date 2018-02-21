@@ -27,31 +27,31 @@ path = "./snark/"
 optional = true
 
 [dependencies]
+blake2-rfc = "0.2.17"
 bn = "0.4.1"
+byteorder = "0.5"
+clap = {version = "2.29.4", features = ["yaml"]}
 crossbeam = "0.2.9"
 ethabi = "4.0"
 ethereum-types = "0.2"
+futures = "0.1"
+hex = "0.3.1"
+ipfs-api = { git = "https://github.com/rmnoff/rust-ipfs-api", rev="17abd00" }
+json = "*"
 rand = "0.3.14"
 rustc-serialize = "~0.3.19"
-blake2-rfc = "0.2.17"
-byteorder = "0.5"
-tokio-core = "0.1.9"
-futures = "0.1"
-sha3 = "0.7.2"
-serde_json = "1.0.9"
-serde_derive = "1.0.27"
 serde = "1.0.27"
-json = "*"
-hex = "0.3.1"
+serde_derive = "1.0.27"
+serde_json = "1.0.9"
+sha3 = "0.7.2"
 spinner = "0.4.0"
-clap = {version = "2.29.4", features = ["yaml"]}
-ipfs-api = { git = "https://github.com/rmnoff/rust-ipfs-api", rev="17abd00" }
+time = "0.1.39"
+tokio-core = "0.1.9"
 web3 = "0.2.0"
 
 # Coordinator needs these
 log = "*"
 env_logger = "*"
-time = "*"
 ansi_term = "*"
 
 [dependencies.bincode]

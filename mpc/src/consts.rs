@@ -4,3 +4,5 @@ pub const DEFAULT_HOST: &str = "localhost";
 pub const THREADS: usize = 128;
 pub static mut TOTAL_BYTES: u64 = 0;
 pub static mut TOTAL_GAS: u64 = 0;
+pub static mut FILTER_OVERHEAD_MS: i64 = 0;
+pub static mut INPUT_OVERHEAD_MS: i64 = 0;

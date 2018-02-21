@@ -1,5 +1,7 @@
 extern crate spinner;
 
+use consts::*;
+
 use web3::api::BaseFilter;
 use web3::contract::tokens::Detokenize;
 use web3::futures::Future;
@@ -12,8 +14,10 @@ use spinner::SpinnerBuilder;
 
 use std::fmt::{Write};
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::thread;
+
+use time::{Duration as MDuration};
 
 #[derive(Clone)]
 pub struct EventFilterBuilder<T: Transport>{
@@ -76,12 +80,23 @@ impl<T, F, S> EventFilter<T, F, S> where
     pub fn await(&mut self, duration: &Duration) -> Option<S> where
     S: Detokenize
     {
+        let wait_start = Instant::now();
         let spinner = SpinnerBuilder::new(String::from(&*self.wait_message)).spinner(spinner::DANCING_KIRBY.to_vec()).step(Duration::from_millis(500)).start();
         loop {
             let result = self.filter.poll().wait().expect("New Stage Filter should return result!").expect("Polling result should be valid!");
             let cb_result = (self.callback)(result, self.parameter);
             if cb_result.is_some() {
                 spinner.close();
+                if PERFORM_MEASUREMENTS {
+                    let duration = MDuration::from_std(wait_start.elapsed());
+                    if duration.is_ok() {
+                        unsafe {
+                            FILTER_OVERHEAD_MS += duration.unwrap().num_milliseconds();
+                        }
+                    } else {
+                        println!("Error in time measurement: Overflow in duration");
+                    }
+                }
                 return cb_result;
             }
             thread::sleep(*duration);

@@ -1,19 +1,20 @@
-extern crate bn;
-extern crate rand;
-extern crate crossbeam;
-extern crate rustc_serialize;
-extern crate blake2_rfc;
 extern crate bincode;
+extern crate blake2_rfc;
+extern crate bn;
 extern crate byteorder;
-extern crate sha3;
-extern crate web3;
-extern crate ipfs_api;
-extern crate serde_json;
+extern crate crossbeam;
 extern crate ethabi;
-extern crate hex;
-extern crate spinner;
-extern crate json;
 extern crate ethereum_types;
+extern crate hex;
+extern crate ipfs_api;
+extern crate json;
+extern crate rand;
+extern crate rustc_serialize;
+extern crate serde_json;
+extern crate sha3;
+extern crate spinner;
+extern crate time;
+extern crate web3;
 
 #[macro_use]
 extern crate clap;
@@ -55,10 +56,12 @@ use web3::transports::Http;
 
 use rand::{SeedableRng, Rng};
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::io::{self};
 use std::fs::File;
 use std::env::var;
+
+use time::Duration as MDuration;
 
 fn get_entropy() -> [u32; 8] {
     use blake2_rfc::blake2s::blake2s;
@@ -78,10 +81,20 @@ fn get_entropy() -> [u32; 8] {
     println!("Please wait while Linux fills up its entropy pool...");
     
     {
+        let wait_start = Instant::now();
         let mut linux_rng = rand::read::ReadRng::new(File::open("/dev/random").unwrap());
-
         for _ in 0..32 {
             v.push(linux_rng.gen());
+        }
+        if PERFORM_MEASUREMENTS {
+            let duration = MDuration::from_std(wait_start.elapsed());
+            if duration.is_ok() {
+                unsafe {
+                    INPUT_OVERHEAD_MS += duration.unwrap().num_milliseconds();
+                }
+            } else {
+                println!("Error in time measurement: Overflow in duration");
+            }
         }
     }
 
@@ -184,6 +197,7 @@ fn upload_object<S, T>(object: &mut S, contract: &ContractWrapper<T>, method_nam
 }
 
 fn prompt(s: &str) -> String {
+    let wait_start = Instant::now();
     loop {
         let mut input = String::new();
         //reset();
@@ -192,6 +206,16 @@ fn prompt(s: &str) -> String {
 
         if io::stdin().read_line(&mut input).is_ok() {
             println!("Please wait...");
+            if PERFORM_MEASUREMENTS {
+                let duration = MDuration::from_std(wait_start.elapsed());
+                if duration.is_ok() {
+                    unsafe {
+                        INPUT_OVERHEAD_MS += duration.unwrap().num_milliseconds();
+                    }
+                } else {
+                    println!("Error in time measurement: Overflow in duration");
+                }
+            }
             return (&input[0..input.len()-1]).into();
         }
     }
@@ -244,6 +268,9 @@ fn verify_all_nizks_valid<T: Transport>(contract: &ContractWrapper<T>, players: 
 }
 
 fn main() {
+    let program_start = Instant::now();
+    let cs = CS::from_file();
+
     //let cs = CS::dummy();
     let host_opt = var(HOST_ENV_KEY);
     let mut host = String::from(DEFAULT_HOST);
@@ -267,7 +294,6 @@ fn main() {
     let mut ipfs: IPFSWrapper = IPFSWrapper::new(format!("http://{}", host).as_str(), 5001);
     println!("Successfully initialized.");
     
-    let cs = CS::from_file();
     let contract = manager.init_contract(account_index, contract_address);
     let default_account = contract.account(); 
     println!("Your account used: {:?}", default_account);
@@ -430,6 +456,17 @@ fn main() {
             7 => {
                 println!("Protocol finished! You can now exit this program and run the verifier to create the keypair.");
                 if PERFORM_MEASUREMENTS {
+                    let total_secs: i64 = program_start.elapsed().as_secs() as i64;
+                    println!("Total program runtime: {:?}s", program_start.elapsed().as_secs());
+                    unsafe{
+                        let filter_overhead_secs: f64 = FILTER_OVERHEAD_MS as f64 / 1000 as f64;
+                        println!("Overhead caused by waiting for the blockchain: {}s ({:.2}%)", filter_overhead_secs as i64, (filter_overhead_secs / total_secs as f64) * 100 as f64);        
+                        let input_overhead_secs: f64 = INPUT_OVERHEAD_MS as f64 / 1000 as f64;
+                        println!("Overhead caused by waiting for inputs: {}s ({:.2}%)", input_overhead_secs as i64, (input_overhead_secs / total_secs as f64) * 100 as f64);        
+                        let execution_secs: f64 = total_secs as f64 - filter_overhead_secs - input_overhead_secs;
+                        println!("Net execution time of the protocol: {}s ({:.2}%)", execution_secs as i64, (execution_secs / total_secs as f64) * 100 as f64);
+                        println!("Share of net execution time / blockchain overhead ignoring input overhead: {:.2}%/{:.2}%", (execution_secs / (total_secs as f64 - input_overhead_secs) as f64) * 100 as f64, (filter_overhead_secs / (total_secs as f64 - input_overhead_secs) as f64) * 100 as f64);
+                    }
                     unsafe {
                         println!("Total amount of bytes written to IPFS by this peer: {:?} B", TOTAL_BYTES);
                     }
