@@ -57,7 +57,7 @@ impl Manager <Http>{
         let len = bytecode.len()-1;
         let bytecode_hex: Vec<u8> = hex::decode(&bytecode[3..len]).expect("Unexpected error!");       //skip leading and trailing special characters like "0x..."
         let cs_ipfs = self.ipfs.upload_file("r1cs");
-        println!("Size of constraint system : {:?} B", cs_ipfs.size);
+        println!("Size of constraint system : {} B", cs_ipfs.size);
         if PERFORM_MEASUREMENTS {
             unsafe {
                 TOTAL_BYTES += u64::from_str_radix(&cs_ipfs.size, 10).unwrap();
