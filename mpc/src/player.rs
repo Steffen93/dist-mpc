@@ -269,9 +269,8 @@ fn verify_all_nizks_valid<T: Transport>(contract: &ContractWrapper<T>, players: 
 
 fn main() {
     let program_start = Instant::now();
-    let cs = CS::from_file();
+    CS::from_file();
 
-    //let cs = CS::dummy();
     let host_opt = var(HOST_ENV_KEY);
     let mut host = String::from(DEFAULT_HOST);
     if host_opt.is_ok() {
@@ -331,6 +330,8 @@ fn main() {
     let mut pubkey = privkey.pubkey(&mut chacha_rng);
     let commitment = pubkey.hash();
 
+    let cs_hash: Vec<u8> = contract.query("getConstraintSystem", ());
+    let cs = ipfs.download_cs(String::from_utf8(cs_hash).expect("Not a valid utf8 string").as_str());
     let mut stop = false;
     let mut stage1: Stage1Contents;
     let mut stage2: Stage2Contents;
