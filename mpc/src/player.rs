@@ -82,7 +82,7 @@ fn get_entropy() -> [u32; 8] {
     
     {
         let wait_start = Instant::now();
-        let mut linux_rng = rand::read::ReadRng::new(File::open("/dev/random").unwrap());
+        let mut linux_rng = rand::read::ReadRng::new(File::open("/dev/urandom").unwrap());
         for _ in 0..32 {
             v.push(linux_rng.gen());
         }
@@ -178,6 +178,7 @@ fn measure_gas_usage<T: Transport>(hash: H256, eth: &Eth<T>) {
         }
         else {
             let gas: u64 = receipt.unwrap().gas_used.low_u64();
+            println!("GAS USED IN TRANSACTION: {}", gas);
             unsafe {
                 TOTAL_GAS += gas;
             }
@@ -269,8 +270,6 @@ fn verify_all_nizks_valid<T: Transport>(contract: &ContractWrapper<T>, players: 
 
 fn main() {
     let program_start = Instant::now();
-    CS::from_file();
-
     let host_opt = var(HOST_ENV_KEY);
     let mut host = String::from(DEFAULT_HOST);
     if host_opt.is_ok() {

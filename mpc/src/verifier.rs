@@ -15,6 +15,7 @@ extern crate serde_json;
 extern crate ipfs_api;
 extern crate sha3;
 extern crate spinner;
+extern crate time;
 
 #[macro_use]
 extern crate clap;
