@@ -78,11 +78,11 @@ fn get_entropy() -> [u32; 8] {
         v.extend_from_slice(hash.as_bytes());
     }
 
-    println!("Please wait while Linux fills up its entropy pool...");
+        println!("Please wait while Linux fills up its entropy pool...");
     
     {
         let wait_start = Instant::now();
-        let mut linux_rng = rand::read::ReadRng::new(File::open("/dev/urandom").unwrap());
+        let mut linux_rng = rand::read::ReadRng::new(File::open("/dev/random").unwrap());
         for _ in 0..32 {
             v.push(linux_rng.gen());
         }
@@ -93,7 +93,7 @@ fn get_entropy() -> [u32; 8] {
                     INPUT_OVERHEAD_MS += duration.unwrap().num_milliseconds();
                 }
             } else {
-                println!("Error in time measurement: Overflow in duration");
+                    println!("Error in time measurement: Overflow in duration");
             }
         }
     }
@@ -174,11 +174,11 @@ fn measure_gas_usage<T: Transport>(hash: H256, eth: &Eth<T>) {
     if PERFORM_MEASUREMENTS {
         let receipt: Option<TransactionReceipt> = eth.transaction_receipt(hash).wait().expect("Call result error!");
         if receipt.is_none(){
-            println!("No receipt for transaction hash {:?}", hash);
+                println!("No receipt for transaction hash {:?}", hash);
         }
         else {
             let gas: u64 = receipt.unwrap().gas_used.low_u64();
-            println!("GAS USED IN TRANSACTION: {}", gas);
+                println!("GAS USED IN TRANSACTION: {}", gas);
             unsafe {
                 TOTAL_GAS += gas;
             }
@@ -198,15 +198,18 @@ fn upload_object<S, T>(object: &mut S, contract: &ContractWrapper<T>, method_nam
 }
 
 fn prompt(s: &str) -> String {
+    if NON_INTERACTIVE {
+        return "".into();
+    }
     let wait_start = Instant::now();
     loop {
         let mut input = String::new();
         //reset();
-        println!("{}", s);
-        println!("\x07");
+            println!("{}", s);
+            println!("\x07");
 
         if io::stdin().read_line(&mut input).is_ok() {
-            println!("Please wait...");
+                println!("Please wait...");
             if PERFORM_MEASUREMENTS {
                 let duration = MDuration::from_std(wait_start.elapsed());
                 if duration.is_ok() {
@@ -214,7 +217,7 @@ fn prompt(s: &str) -> String {
                         INPUT_OVERHEAD_MS += duration.unwrap().num_milliseconds();
                     }
                 } else {
-                    println!("Error in time measurement: Overflow in duration");
+                        println!("Error in time measurement: Overflow in duration");
                 }
             }
             return (&input[0..input.len()-1]).into();
@@ -274,7 +277,7 @@ fn main() {
     let mut host = String::from(DEFAULT_HOST);
     if host_opt.is_ok() {
             host = host_opt.unwrap();
-            println!("Using host from environment variable: {:?}", host);
+                println!("Using host from environment variable: {:?}", host);
     }
 
     let mut call_transactions: Vec<H256> = vec![];
@@ -284,18 +287,18 @@ fn main() {
     let account_index = matches.value_of("account");
     let contract_address = matches.value_of("contract");
 
-    println!("Initializing Web3 and IPFS...");
+        println!("Initializing Web3 and IPFS...");
     let (_eloop, transport) = Http::new(format!("http://{}:8545", host).as_str()).expect("Error connecting to web3 instance!");
     let manager: Manager<Http> = Manager::new(Web3::new(transport), format!("http://{}", host).as_str(), 5001);
 
     let web3: Web3<Http> = manager.web3.clone();
     let mut ipfs: IPFSWrapper = IPFSWrapper::new(format!("http://{}", host).as_str(), 5001);
-    println!("Successfully initialized.");
+        println!("Successfully initialized.");
     
     let contract = manager.init_contract(account_index, contract_address);
     let default_account = contract.account(); 
-    println!("Your account used: {:?}", default_account);
-    println!("Contract address: {:?}", contract.address());
+        println!("Your account used: {:?}", default_account);
+        println!("Contract address: {:?}", contract.address());
 
     let filter_builder = EventFilterBuilder::new(web3.clone()); 
     let poll_interval = Duration::new(1, 0);
@@ -305,9 +308,9 @@ fn main() {
     // IF CURRENT ACCOUNT IS NOT A PLAYER, JOIN!
     let mut players: Vec<Address> = get_players(&contract);
     if players.contains(&default_account) {
-        println!("You are a player in the protocol already, continuing...");
+            println!("You are a player in the protocol already, continuing...");
     } else {
-        println!("Welcome new player! Joining now...");
+            println!("Welcome new player! Joining now...");
         let transaction_hash = contract.call("join", ());
         if PERFORM_MEASUREMENTS {
             call_transactions.push(transaction_hash);
@@ -335,8 +338,8 @@ fn main() {
     let mut stage1: Stage1Contents;
     let mut stage2: Stage2Contents;
     let mut stage3: Stage3Contents;
-    println!("!!! READ CAREFULLY !!! Beyond this point, the program MUST NOT BE STOPPED OR INTERRUPTED until the end of the protocol.");
-    println!("If it is interrupted anyways, there is no way to restart the protocol using the same Smart Contract!");
+        println!("!!! READ CAREFULLY !!! Beyond this point, the program MUST NOT BE STOPPED OR INTERRUPTED until the end of the protocol.");
+        println!("If it is interrupted anyways, there is no way to restart the protocol using the same Smart Contract!");
     prompt("Press [ENTER] when you are ready to start the protocol.");
     while !stop {
         match get_current_state(&contract) {
@@ -348,7 +351,7 @@ fn main() {
                         call_transactions.push(transaction_hash);
                     }
                 } else {
-                    println!("You are not the coordinator. The protocol will start as the coordinator decides.");
+                        println!("You are not the coordinator. The protocol will start as the coordinator decides.");
                 }
                 next_stage_filter.await(&poll_interval);
                 players = get_players(&contract);
@@ -361,34 +364,34 @@ fn main() {
                     }
                 }
                 next_stage_filter.await(&poll_interval);
-                println!("All players committed. Proceeding to next round.");
+                    println!("All players committed. Proceeding to next round.");
             },
             2 => {
                 let transaction_hash = upload_object(&mut pubkey, &contract, "revealCommitment", "publicKey", &mut ipfs);
                 if PERFORM_MEASUREMENTS {
                     call_transactions.push(transaction_hash);
                 }
-                println!("Public Key revealed! Waiting for other players to reveal...");
+                    println!("Public Key revealed! Waiting for other players to reveal...");
                 next_stage_filter.await(&poll_interval);
-                println!("All players revealed their commitments. Proceeding to next round.");
+                    println!("All players revealed their commitments. Proceeding to next round.");
             },
             3 => {
                 let mut all_commitments = fetch_all_commitments(&contract, players.clone());
                 let hash_of_all_commitments = Digest512::from(&all_commitments).unwrap();
-                println!("Creating nizks...");
+                    println!("Creating nizks...");
                 let mut nizks = pubkey.nizks(&mut chacha_rng, &privkey, &hash_of_all_commitments);
-                println!("Nizks created.");
+                    println!("Nizks created.");
                 let transaction_hash = upload_object(&mut nizks, &contract, "publishNizks", "nizks", &mut ipfs);
                 if PERFORM_MEASUREMENTS {
                     call_transactions.push(transaction_hash);
                 }
                 next_stage_filter.await(&poll_interval);
-                println!("All nizks published. Checking validity...");
+                    println!("All nizks published. Checking validity...");
                 verify_all_nizks_valid(&contract, players.clone(), &hash_of_all_commitments, &mut ipfs);
             },
             4 => {
                 if is_coordinator(&contract, default_account) {
-                    println!("Creating stage...");
+                        println!("Creating stage...");
                     stage1 = Stage1Contents::new(&cs);
                     let transaction_hash = init_stage_and_upload(&mut stage1, &privkey, &pubkey, &contract, "stage1", &mut ipfs);
                     if PERFORM_MEASUREMENTS {
@@ -409,7 +412,7 @@ fn main() {
             },
             5 => {
                 if is_coordinator(&contract, default_account) {
-                    println!("Creating stage...");
+                        println!("Creating stage...");
                     stage1 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                     stage2 = Stage2Contents::new(&cs, &stage1);
                     drop(stage1);
@@ -432,7 +435,7 @@ fn main() {
             },
             6 => {
                 if is_coordinator(&contract, default_account) {
-                    println!("Creating stage...");
+                        println!("Creating stage...");
                     stage2 = download_stage(&contract, "getLatestTransformation", (), &mut ipfs);
                     stage3 = Stage3Contents::new(&cs, &stage2);
                     drop(stage2); 
@@ -454,28 +457,29 @@ fn main() {
                 next_stage_filter.await(&poll_interval);
             },
             7 => {
-                println!("Protocol finished! You can now exit this program and run the verifier to create the keypair.");
+                    println!("Protocol finished! You can now exit this program and run the verifier to create the keypair.");
                 if PERFORM_MEASUREMENTS {
                     let total_secs: i64 = program_start.elapsed().as_secs() as i64;
-                    println!("Total program runtime: {:?}s", program_start.elapsed().as_secs());
+                        println!("Total program runtime: {:?}s", program_start.elapsed().as_secs());
                     unsafe{
                         let filter_overhead_secs: f64 = FILTER_OVERHEAD_MS as f64 / 1000 as f64;
-                        println!("Overhead caused by waiting for the blockchain: {}s ({:.2}%)", filter_overhead_secs as i64, (filter_overhead_secs / total_secs as f64) * 100 as f64);        
+                            println!("Overhead caused by waiting for the blockchain: {}s ({:.2}%)", filter_overhead_secs as i64, (filter_overhead_secs / total_secs as f64) * 100 as f64);        
                         let input_overhead_secs: f64 = INPUT_OVERHEAD_MS as f64 / 1000 as f64;
-                        println!("Overhead caused by waiting for inputs: {}s ({:.2}%)", input_overhead_secs as i64, (input_overhead_secs / total_secs as f64) * 100 as f64);        
+                            println!("Overhead caused by waiting for inputs: {}s ({:.2}%)", input_overhead_secs as i64, (input_overhead_secs / total_secs as f64) * 100 as f64);        
                         let execution_secs: f64 = total_secs as f64 - filter_overhead_secs - input_overhead_secs;
-                        println!("Net execution time of the protocol: {}s ({:.2}%)", execution_secs as i64, (execution_secs / total_secs as f64) * 100 as f64);
-                        println!("Share of net execution time / blockchain overhead ignoring input overhead: {:.2}%/{:.2}%", (execution_secs / (total_secs as f64 - input_overhead_secs) as f64) * 100 as f64, (filter_overhead_secs / (total_secs as f64 - input_overhead_secs) as f64) * 100 as f64);
+                            println!("Net execution time of the protocol: {}s ({:.2}%)", execution_secs as i64, (execution_secs / total_secs as f64) * 100 as f64);
+                            println!("Share of net execution time / blockchain overhead ignoring input overhead: {:.2}%/{:.2}%", (execution_secs / (total_secs as f64 - input_overhead_secs) as f64) * 100 as f64, (filter_overhead_secs / (total_secs as f64 - input_overhead_secs) as f64) * 100 as f64);
                     }
                     unsafe {
-                        println!("Total amount of bytes written to IPFS by this peer: {:?} B", TOTAL_BYTES);
+                            println!("Total amount of bytes written to IPFS by this peer: {:?} B", TOTAL_BYTES);
                     }
                     for hash in call_transactions.clone() {
                         measure_gas_usage(hash, &web3.eth());
                     }
                     unsafe {
-                        println!("Total amount of gas used by this peer (excluding contract creation): {:?}", TOTAL_GAS);
+                            println!("Total amount of gas used by this peer (excluding contract creation): {:?}", TOTAL_GAS);
                     }
+                    print_for_benchmarks(total_secs, call_transactions.clone(), &web3.eth());
                 }
                 stop = true;
             },
@@ -483,6 +487,49 @@ fn main() {
                 stop = true;
             }
         }
+    }
+}
+
+fn print_for_benchmarks<T: Transport>(total_secs: i64, transactions: Vec<H256>, eth: &Eth<T>){
+    unsafe {
+        let filter_overhead_secs: f64 = FILTER_OVERHEAD_MS as f64 / 1000 as f64;
+        let input_overhead_secs: f64 = INPUT_OVERHEAD_MS as f64 / 1000 as f64;
+        let execution_secs: f64 = total_secs as f64 - filter_overhead_secs - input_overhead_secs;
+        let mut gas: Vec<u64> = vec![];
+        if transactions.len() < 7{
+            gas.push(0);
+        }
+        for hash in transactions {
+            let receipt: Option<TransactionReceipt> = eth.transaction_receipt(hash).wait().expect("Call result error!");
+            if receipt.is_none(){
+                println!("No receipt for transaction hash {:?}", hash);
+            }
+            else {
+                let gas_used: u64 = receipt.unwrap().gas_used.low_u64();
+                gas.push(gas_used);
+            }
+        }
+        assert_eq!(gas.len(), 7);
+        println!("{},{},{:.2},{},{:.2},{},{:.2},{:.2}/{:.2},{},{},{},{},{},{},{},{},{}", 
+            total_secs, 
+            filter_overhead_secs as i64, 
+            (filter_overhead_secs / total_secs as f64) * 100 as f64,
+            input_overhead_secs as i64, 
+            (input_overhead_secs / total_secs as f64) * 100 as f64,
+            execution_secs as i64, 
+            (execution_secs / total_secs as f64) * 100 as f64,
+            (execution_secs / (total_secs as f64 - input_overhead_secs) as f64) * 100 as f64,
+            (filter_overhead_secs / (total_secs as f64 - input_overhead_secs) as f64) * 100 as f64,
+            TOTAL_BYTES,
+            TOTAL_GAS,
+            gas[0],
+            gas[1],
+            gas[2],
+            gas[3],
+            gas[4],
+            gas[5],
+            gas[6]
+        );
     }
 }
 
