@@ -36,8 +36,7 @@ RUN curl -sL https://deb.nodesource.com/setup_6.x | bash - \
 
 ARG git_user
 ARG git_pw
-ARG git_branch=rust-to-blockchain
-RUN git clone https://${git_user}:${git_pw}@github.com/steffen93/dist-mpc --branch ${git_branch}
+RUN git clone https://${git_user}:${git_pw}@github.com/steffen93/dist-mpc
 
 ENV DIST_MPC_HOST=localhost
 
