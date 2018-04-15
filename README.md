@@ -11,6 +11,8 @@ The following steps are required to run the setup:
 
 2. Run the multi-party protocol. See details in the according [README](mpc).
 
+Alternatively, the project can be run in a Docker container.
+
 -----
 # Note for developers
 On contract change, the ABI needs to be copied to the mpc folder into the `abi.json` file.
