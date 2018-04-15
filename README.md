@@ -13,6 +13,12 @@ The following steps are required to run the setup:
 
 Alternatively, the project can be run in a Docker container.
 
+## Compatibility with ZoKrates
+dist-mpc aims to become compatible with [the ZoKrates toolset](https://github.com/JacobEberhardt/ZoKrates).
+Because of an incompatibility of the constraint systems ZoKrates produces and this tool expects, currently [this fork](https://github.com/steffen93/ZoKrates) needs to be used to generate a valid R1CS.
+
+However, the proving key and verification key are currently not compatible with ZoKrates, which needs to be resolved.
+
 -----
 # Note for developers
 On contract change, the ABI needs to be copied to the mpc folder into the `abi.json` file.
