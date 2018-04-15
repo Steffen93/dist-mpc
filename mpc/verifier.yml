@@ -1,0 +1,8 @@
+name: dist-mpc
+author: Steffen Härtlein <haertlein@campus.tu-berlin.de>
+args:
+    - contract:
+        short: c
+        long: contract
+        takes_value: true
+        required: true

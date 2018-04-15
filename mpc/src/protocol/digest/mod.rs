@@ -1,27 +1,9 @@
 use bn::Fr;
 
-use std::io::Read;
 use rustc_serialize::{Encodable, Encoder, Decodable, Decoder};
 use bincode::SizeLimit::Infinite;
 use bincode::rustc_serialize::encode;
 use blake2_rfc::blake2b::blake2b;
-use blake2_rfc::blake2s::blake2s;
-
-mod base58;
-use self::base58::{ToBase58, FromBase58};
-
-#[macro_export]
-macro_rules! digest256_from_parts {
-    ($($h:ident),*) => ({
-        let mut contents = vec![];
-
-        $(
-            encode_into(&$h, &mut contents, Infinite).unwrap();
-        )*
-
-        Digest256::from_reader(&mut (&contents[..]))
-    })
-}
 
 macro_rules! digest_impl {
     ($name:ident, $bytes:expr, $hash:ident) => {
@@ -82,46 +64,10 @@ macro_rules! digest_impl {
 }
 
 digest_impl!(Digest512, 64, blake2b);
-digest_impl!(Digest256, 32, blake2s);
 
 impl Digest512 {
     pub fn interpret(&self) -> Fr {
         Fr::interpret(&self.0)
-    }
-}
-
-impl Digest256 {
-    pub fn from_reader<R: Read>(r: &mut R) -> Digest256 {
-        use blake2_rfc::blake2s::blake2s;
-
-        let mut contents = vec![];
-
-        r.read_to_end(&mut contents).unwrap();
-
-        let mut output = [0; 32];
-        output.copy_from_slice(&blake2s(32, &[], &contents).as_bytes());
-
-        Digest256(output)
-    }
-
-    pub fn to_string(&self) -> String {
-        (&self.0[..]).to_base58check()
-    }
-
-    pub fn from_string(s: &str) -> Option<Digest256> {
-        let f: Result<Vec<u8>, _> = FromBase58::from_base58check(s);
-        match f {
-            Ok(decoded) => {
-                if decoded.len() == 32 {
-                    let mut decoded_bytes: [u8; 32] = [0; 32];
-                    decoded_bytes.copy_from_slice(&decoded);
-                    Some(Digest256(decoded_bytes))
-                } else {
-                    None
-                }
-            },
-            Err(_) => None
-        }
     }
 }
 
