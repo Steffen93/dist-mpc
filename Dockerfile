@@ -33,10 +33,7 @@ RUN curl -sL https://deb.nodesource.com/setup_6.x | bash - \
   && npm i -g truffle
 
 # build library from git, use for production
-
-ARG git_user
-ARG git_pw
-RUN git clone https://${git_user}:${git_pw}@github.com/steffen93/dist-mpc
+RUN git clone https://github.com/steffen93/dist-mpc
 
 ENV DIST_MPC_HOST=localhost
 
